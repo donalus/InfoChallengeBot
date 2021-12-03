@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 import os
 
+
 # logging config
 # logging.basicConfig(
 #     filename="log/ic-bot.log",
@@ -44,11 +45,16 @@ except KeyError as e:
     logging.critical(f"Configuration error. \n\tKey Not Found: {e}")
     go_for_launch = False
 
+# Configure intents
+intents = discord.Intents.default()
+intents.members = True
+
 # Set up the bot
 bot = commands.Bot(
     command_prefix=bot_key,
     description=f"Registration Bot for InfoChallenge",
-    help_command=None)
+    intents=intents)
+bot.remove_command('help')
 
 
 @bot.event
@@ -59,14 +65,6 @@ async def on_ready():
                                   name="registration")
     )
     logging.info("Bot is ready!")
-
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-    logging.info(f"I got a message: {message}")
-    await bot.process_commands(message)
 
 
 if __name__ == '__main__':

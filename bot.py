@@ -3,7 +3,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 import os
-
+import sqlite3
 
 # logging config
 # logging.basicConfig(
@@ -30,19 +30,35 @@ def get_module_logger(mod_name):
 
 current_dir = Path('.')
 data_path = current_dir / "data"
-
+db = sqlite3.connect("users.db")
+cur = db.cursor()
+cur.execute("""
+CREATE TABLE reg_users
+(userid, email, institution, team)
+""")
+cur.execute("""
+CREATE TABLE registrations
+(email, institution)
+""")
+cur.execute("""
+CREATE TABLE convo_step
+(userid, step)
+""")
+cur.execute("""
+INSERT INTO registrations
+VALUES('tester1@test.local', 'UMD')""")
+db.commit()
+db.close()
 # Extensions (cogs) to load
 extensions = ["registration"]
 
 # Load configuration from environment
 go_for_launch = True
 try:
-    logging.info("Loading config...")
-
     bot_token = os.environ["token"]
     bot_key = os.environ["key"]
+    event_name = "Info Challenge 2022" #os.environ["event_name"]
 except KeyError as e:
-    logging.critical(f"Configuration error. \n\tKey Not Found: {e}")
     go_for_launch = False
 
 # Configure intents
@@ -64,26 +80,26 @@ async def on_ready():
         activity=discord.Activity(type=discord.ActivityType.watching,
                                   name="registration")
     )
-    logging.info("Bot is ready!")
+    log.info("Bot is ready!")
 
 
 if __name__ == '__main__':
-    logging = get_module_logger(__name__)
-    logging.info("hit main")
+    log = get_module_logger('--IC-BOT-DISCORD--')
+    log.info("hit main")
 
     cog_count = 0
     for extension in extensions:
         try:
             bot.load_extension(f"cogs.{extension}")
-            logging.info(f"Loaded Cog: {extension}")
+            log.info(f"Loaded Cog: {extension}")
             cog_count += 1
         except Exception as error:
-            logging.warning(f"Cog Error: {extension} could not be loaded.\nt[{error}]")
+            log.warning(f"Cog Error: {extension} could not be loaded.\nt[{error}]")
 
-        logging.info(f"Loaded {cog_count}/{len(extensions)} cogs.")
+        log.info(f"Loaded {cog_count}/{len(extensions)} cogs.")
 
     if go_for_launch:
-        logging.info("Houston, we are go for launch!")
+        log.info("Houston, we are go for launch!")
         bot.run(bot_token)
     else:
-        logging.warning("Abort, abort, abort.")
+        log.warning("Abort, abort, abort.")

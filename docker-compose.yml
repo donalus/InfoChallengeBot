@@ -1,3 +1,4 @@
+             # The Discord bot token being used. Do not share this!
 version: "1"
 services:
     ic-bot:

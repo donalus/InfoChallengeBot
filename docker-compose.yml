@@ -1,0 +1,9 @@
+version: "1"
+services:
+    ic-bot:
+        image: donalus/ic-bot:latest
+        environment:
+             # The Discord bot token being used. Do not share this!
+            - token=
+            # The command prefix used by the bot.
+            - key=!

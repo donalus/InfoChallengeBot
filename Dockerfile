@@ -1,9 +1,5 @@
-FROM python:3.9-alpine
+FROM python:3.10-alpine
 WORKDIR /app
-
-# Placeholder Environment Variables
-ENV token=
-ENV key=!
 
 # Install all Python requirements
 COPY requirements.txt requirements.txt

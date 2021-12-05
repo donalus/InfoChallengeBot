@@ -5,10 +5,7 @@ import discord
 from discord.ext import commands
 import logging
 from validate_email_address import validate_email
-from models import Session
-from models.convostep import ConvoStep
-from models.registration import Registration
-from models.participant import Participant
+from models import Session, Registration, ConvoStep, Participant
 
 from dotenv import load_dotenv
 

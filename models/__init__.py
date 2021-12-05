@@ -7,12 +7,17 @@ from sqlalchemy.ext.declarative import declarative_base
 
 from dotenv import load_dotenv
 load_dotenv()
-
 IS_PROD = os.environ['is_production'] == 'True'
+DB_CONN_URI = os.environ['db_conn_uri']
 
-engine = create_engine(os.environ['db_conn_uri'])
+engine = create_engine(DB_CONN_URI)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
+
+if __name__ == '__main__':
+    from .registration import Registration
+    from .convostep import ConvoStep
+    from .participant import Participant
 
 
 # Make Database
@@ -20,10 +25,6 @@ def init_db():
     import logging
     log = logging.getLogger(os.getenv('logging_str'))
     log.info(f"[init_db: Start] IsProd: {IS_PROD}")
-
-    from .registration import Registration
-    from .convostep import ConvoStep
-    from .participant import Participant
 
     if not IS_PROD:
         log.info(f"[init_db: Drop]")
@@ -34,10 +35,11 @@ def init_db():
 
     if not IS_PROD:
         log.info(f"[init_db: Add]")
+        import models.registration
         session = Session()
         session.add_all([
-            Registration(full_name='Tester McTesterson', email='tester99@umd.edu', institution='UMD'),
-            Registration(full_name='Sailor Testbotten', email='gonavy@test.edu', institution='NAVY'),
+            registration.Registration(full_name='Tester McTesterson', email='tester99@umd.edu', institution='UMD'),
+            registration.Registration(full_name='Sailor Testbotten', email='gonavy@test.edu', institution='NAVY'),
         ])
         session.commit()
 

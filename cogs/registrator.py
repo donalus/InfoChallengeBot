@@ -8,6 +8,7 @@ from validate_email_address import validate_email
 from models import Session
 from models.convostep import ConvoStep
 from models.registration import Registration
+from models.participant import Participant
 
 from dotenv import load_dotenv
 
@@ -23,7 +24,7 @@ current_dir = Path('.')
 data_path = current_dir / DATA_DIR
 
 
-class Registrations(commands.Cog):
+class Registrator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.log = logging.getLogger(LOGGING_STR)
@@ -41,9 +42,9 @@ class Registrations(commands.Cog):
             f"Please reply with just your email address."
         )
 
-        with Session() as session:
-            session.add(ConvoStep(discord_id=member.id, step=0))
-            session.commit()
+        session = Session()
+        session.add(ConvoStep(discord_id=member.id, step=0))
+        session.commit()
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -52,35 +53,35 @@ class Registrations(commands.Cog):
         if message.content.startswith(self.bot.command_prefix):
             return
         if not message.guild:
-            with Session() as session:
-                count = session.query(Registration).filter(Registration.discord_id == message.author.id).count()
+            session = Session()
+            count = session.query(Participant).filter(Participant.discord_id == message.author.id).count()
 
-                self.log.info(f"User ID: {message.author.id} | {count}")
-                if count > 0:
+            self.log.info(f"User ID: {message.author.id} | {count}")
+            if count > 0:
+                await message.reply(
+                    f"Silly, you are already registered."
+                )
+            else:
+                convo = session.query(ConvoStep).filter(ConvoStep.discord_id == message.author.id).one_or_none()
+
+                if convo is None:
                     await message.reply(
-                        f"Silly, you are already registered."
+                        f"Hello {message.author.name}, it looks like you need to register "
+                        f"for {self.bot.guilds[0].name}.\nPlease reply with just your email address."
                     )
+
+                    session.add(ConvoStep(discord_id=message.author.id, step=0))
+                    session.commit()
                 else:
-                    convo = session.query(ConvoStep).filter(ConvoStep.discord_id == message.author.id).one_or_none()
-
-                    if convo is None:
+                    if validate_email(message.content):
                         await message.reply(
-                            f"Hello {message.author.name}, it looks like you need to register "
-                            f"for {self.bot.guilds[0].name}.\nPlease reply with just your email address."
+                            f"Hello {message.author.name}, that is a valid email address."
                         )
-
-                        session.add(ConvoStep(discord_id=message.author.id, step=0))
-                        session.commit()
                     else:
-                        if validate_email(message.content):
-                            await message.reply(
-                                f"Hello {message.author.name}, that is a valid email address."
-                            )
-                        else:
-                            await message.reply(
-                                f"Hello {message.author.name}, that is not a valid email address.\n"
-                                f"Please reply with only your email address."
-                            )
+                        await message.reply(
+                            f"Hello {message.author.name}, that is not a valid email address.\n"
+                            f"Please reply with only your email address."
+                        )
 
     @commands.command(name="help", aliases=["helpme", "help_me", "registration_help"])
     async def registration_help(self, ctx, *args):
@@ -110,4 +111,4 @@ class Registrations(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(Registration(bot))
+    bot.add_cog(Registrator(bot))

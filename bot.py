@@ -34,7 +34,7 @@ def get_module_logger(mod_name):
 
 
 # Extensions (cogs) to load
-extensions = ["registrations"]
+extensions = ["registrator", "teambuilder"]
 
 # Configure intents
 intents = discord.Intents.default()
@@ -42,7 +42,7 @@ intents.members = True
 
 # Set up the bot
 bot = commands.Bot(
-    command_prefix=BOT_TOKEN,
+    command_prefix=BOT_KEY,
     description=f"Registration Bot for {EVENT_NAME}",
     intents=intents)
 bot.remove_command('help')

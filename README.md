@@ -1,4 +1,4 @@
-# ic-reg-bot
+# InfoChallengeConcierge
 Discord Registration Bot for the UMD Information Challenge
 
 

@@ -14,7 +14,7 @@ engine = create_engine(DB_CONN_URI)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
 
-__all__ = ['Session', 'Registration', 'ConvoStep', 'Participant', 'init_db']
+__all__ = ['Session', 'Registration', 'ConvoState', 'Participant', 'init_db']
 
 
 # Make Database
@@ -41,5 +41,5 @@ def init_db():
 
 # PEP8 says these shouldn't be here, but putting these here avoids circular references within this module.
 from models.registration import Registration
-from models.convostep import ConvoStep
+from models.convostate import ConvoState
 from models.participant import Participant

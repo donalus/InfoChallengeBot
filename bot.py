@@ -56,6 +56,8 @@ async def on_ready():
                                   name=EVENT_NAME)
     )
     log.info(f"Bot is ready for {EVENT_NAME}!")
+    for guild in bot.guilds:
+        log.info(f"Bot is connected to {guild.id}")
 
 
 if __name__ == '__main__':
@@ -75,5 +77,5 @@ if __name__ == '__main__':
 
         log.info(f"Loaded {cog_count}/{len(extensions)} cogs.")
 
-    log.info("Main engin start.")
+    log.info("Main engine start.")
     bot.run(BOT_TOKEN)

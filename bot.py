@@ -11,10 +11,13 @@ load_dotenv()
 IS_PROD = os.environ['is_production'] == 'True'
 DB_CONN = os.getenv('db_conn_uri')
 EVENT_NAME = os.getenv('event_name')
+EVENT_GUILD_ID = int(os.getenv('event_guild_id'))
 DATA_DIR = os.getenv('data_dir')
 LOGGING_STR = os.getenv('logging_str')
 BOT_KEY = os.getenv('bot_prefix')
 BOT_TOKEN = os.getenv('bot_token')
+
+EVENT_BOT_ROLES = ['Planning Team']
 current_dir = Path('.')
 data_path = current_dir / DATA_DIR
 
@@ -34,7 +37,7 @@ def get_module_logger(mod_name):
 
 
 # Extensions (cogs) to load
-extensions = ["registrator", "teambuilder"]
+extensions = ["manager", "registrator", "teambuilder"]
 
 # Configure intents
 intents = discord.Intents.default()
@@ -77,5 +80,5 @@ if __name__ == '__main__':
 
         log.info(f"Loaded {cog_count}/{len(extensions)} cogs.")
 
-    log.info("Main engine start.")
+    log.info(f"Main engine start. Go for launch!")
     bot.run(BOT_TOKEN)

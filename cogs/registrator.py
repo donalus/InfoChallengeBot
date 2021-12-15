@@ -4,6 +4,7 @@ import ssl
 import discord
 from discord.ext import commands
 from discord.ui import View, Button
+from discord.commands import Option, SlashCommandGroup, Permission
 import logging
 
 from sqlalchemy import update, delete
@@ -21,6 +22,9 @@ EVENT_NAME = os.getenv('event_name')
 EVENT_GUILD_ID = int(os.getenv('event_guild_id'))
 EVENT_CONTACT_EMAIL = os.getenv('event_contact_email')
 EVENT_BOT_CHANNEL_ID = int(os.getenv('event_bot_channel_id'))
+BOT_MANAGER_ROLE_ID = int(os.getenv('bot_manager_role_id'))
+GUILD_OWNER_ID = int(os.getenv('guild_owner_id'))
+
 DATA_DIR = os.getenv('data_dir')
 BOT_KEY = os.getenv('bot_prefix')
 LOGGING_STR = os.getenv('logging_str')
@@ -28,18 +32,46 @@ current_dir = Path('.')
 data_path = current_dir / DATA_DIR
 
 
-def is_in_guild(guild_id):
-    async def guild_predicate(ctx):
-        return ctx.guild and ctx.guild.id == guild_id
-
-    return commands.check(guild_predicate)
-
-
+# This is a mixin to make sure that these commands only work in the channel specified.
 def is_in_channel(channel_id):
     async def channel_predicate(ctx):
         return ctx.channel and ctx.channel.id == channel_id
 
     return commands.check(channel_predicate)
+
+
+class Confirm(discord.ui.View):
+    def __init__(self, convo):
+        super().__init__()
+        self.convo = convo
+
+    @discord.ui.button(label="Yes", emoji="✔", style=ButtonStyle.green)
+    async def yes(self, button: discord.ui.Button, interaction: discord.Interaction):
+        msg, view = self.convo.exec(message="yes")
+
+        # Yes, this is a gross place for this to be...
+        if self.convo.state.state == 'registered':
+            await self.convo.sync_server_roles()
+
+        # Apparently pycord doesn't like view to be present and none...
+        if view is not None:
+            await interaction.response.send_message(msg, view=view)
+        else:
+            await interaction.response.send_message(msg)
+
+        self.stop()
+
+    @discord.ui.button(label="No", emoji="❌", style=ButtonStyle.grey)
+    async def no(self, button: discord.ui.Button, interaction: discord.Interaction):
+        msg, view = self.convo.exec(message="no")
+
+        # Apparently pycord doesn't like view to be present and none...
+        if view is not None:
+            await interaction.response.send_message(msg, view=view)
+        else:
+            await interaction.response.send_message(msg)
+
+        self.stop()
 
 
 class RegistratorConvoFSM:
@@ -139,47 +171,18 @@ class RegistratorConvoFSM:
                 if reg_obj is None:
                     self.log.info(f"fsm._email: unrecognized {email}")
                     response = f"I did not recognize the email \"{email}\". " \
-                               f"Would you like to try again? (Reply with Yes or No)"
-                    view = View()
-                    yes_button = Button(label="Yes", emoji="✔", style=ButtonStyle.green)
-                    view.add_item(yes_button)
-                    no_button = Button(label="No", emoji="❌", style=ButtonStyle.red)
-                    view.add_item(no_button)
+                               f"Would you like to try again? (Click on your response)"
+
+                    view = Confirm(self)
+
                     self.set_state('unrecognized')
                 else:
                     self.log.info(f"fsm._email: recognized {email}")
-                    response = f"I have found a registration for:\n" \
-                               f"\tName: {reg_obj.full_name}\n" \
-                               f"\tInstitution: {reg_obj.institution}\n" \
-                               f"Is this you? (Reply with Yes or No)\n"
-                    view = View()
+                    response = f"I have found a registration for {reg_obj.full_name}.\n" \
+                               f"Is this correct? (Click on your response)\n"
 
-                    class YesButton(Button):
-                        def __init__(self, convo_state):
-                            self.convo_state = convo_state
-                            super().__init__(label="Yes", emoji="✔", style=ButtonStyle.green)
+                    view = Confirm(self)
 
-                        async def callback(self, interaction):
-                            msg, _ = self.convo_state.exec(message="yes")
-                            await self.convo_state.sync_server_roles()
-                            await interaction.delete_original_message()
-                            await interaction.followup.send_message(msg)
-
-                    yes_button = YesButton(self)
-                    view.add_item(yes_button)
-
-                    class NoButton(Button):
-                        def __init__(self, convo_state):
-                            self.convo_state = convo_state
-                            super().__init__(label="No", emoji="❌", style=ButtonStyle.red)
-
-                        async def callback(self, interaction):
-                            msg, _ = self.convo_state.exec(message="no")
-                            await interaction.response.edit_original_message("...")
-                            await interaction.followup.send_message(msg)
-
-                    no_button = NoButton(self)
-                    view.add_item(no_button)
                     self.set_state_email(email)
                     self.next_state()
             else:
@@ -191,6 +194,7 @@ class RegistratorConvoFSM:
     def _unrecognized(self, **kwargs):
         self.log.info(f"fsm._unrecognized: {kwargs}")
         response = "_unrecognized: No message?"
+        view = None
         if 'message' in kwargs:
             message = str(kwargs['message']).strip().lower()
             if message == 'yes':
@@ -198,12 +202,13 @@ class RegistratorConvoFSM:
                 self.set_state('email')
             elif message == 'no':
                 self.set_state('unknown')
-                response = self.exec(**kwargs)
+                response, view = self.exec(**kwargs)
             else:
                 response = f"I'm sorry. I didn't understand your response.\n" \
-                           f"Would you like to try another email address? (Reply with Yes or No)"
+                           f"Would you like to try another email address? (Click on your response)"
 
-        return response, None
+                view = Confirm(self)
+        return response, view
 
     def _confirm(self, **kwargs):
         self.log.info(f"fsm._confirm: {kwargs}")
@@ -223,14 +228,14 @@ class RegistratorConvoFSM:
                     self.next_state()
                     response, view = self.exec(**kwargs)
                 elif message == 'no':
-                    response = f"Would you like to try another email address? (Reply with Yes or No)"
+                    response = f"Would you like to try another email address? (Click on your response)"
+                    view = Confirm(self)
                     self.set_state('unrecognized')
                 else:
                     response = f"I'm sorry, I didn't understand your response.\n" \
-                               f"Please confirm you are:\n" \
-                               f"\tName: {reg_obj.full_name}\n" \
-                               f"\tInstitution: {reg_obj.institution}\n" \
-                               f"(Reply with Yes or No)\n"
+                               f"Are you {reg_obj.full_name}?\n" \
+                               f"(Click on your response)\n"
+                    view = Confirm(self)
         return response, view
 
     def _registered(self, **kwargs):
@@ -294,13 +299,27 @@ class Registrator(commands.Cog):
         self.log = logging.getLogger(LOGGING_STR)
         self.log.info(f"Booting up Cog: Registrations")
 
+    registrator_group = SlashCommandGroup(
+        "reg",
+        "Commands to manage registrations",
+        guild_ids=[EVENT_GUILD_ID],
+        permissions=[
+            Permission(
+                BOT_MANAGER_ROLE_ID, 1, True
+            ),  # Only Users in Planning Team
+            Permission(
+                GUILD_OWNER_ID, 2, True
+            ),  # Always allow owner
+        ]
+    )
+
     @commands.Cog.listener()
     async def on_member_join(self, member):
         if member.bot is True:
             return
 
         reg_fsm = RegistratorConvoFSM(Session(), member.guild, member)
-        msg = reg_fsm.exec()
+        msg, view = reg_fsm.exec()
         await member.send(msg)
 
     @commands.Cog.listener()
@@ -320,41 +339,38 @@ class Registrator(commands.Cog):
                 reg_fsm = RegistratorConvoFSM(self.log, Session(), guild, member)
 
                 msg, view = reg_fsm.exec(message=message.content)
-                await message.reply(msg, view=view)
-                if reg_fsm.state.state == 'registered':
-                    await reg_fsm.sync_server_roles()
+                if view is not None:
+                    await message.reply(msg, view=view)
+                else:
+                    await message.reply(msg)
+
             else:
                 await message.reply(
                     f"I'm sorry. We don't share any servers, so I don't know how to help you."
                 )
 
     @commands.guild_only()
-    @is_in_guild(EVENT_GUILD_ID)
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @commands.create_group(name="register", guild_ids=[EVENT_GUILD_ID],
-                           description="Commands for handling user registrations")
-    async def register(self, ctx):
-        await ctx.respond(f"{ctx.author.name} said...")
+    @registrator_group.command(name="reset", description="Reset a users\'s roles.")
+    async def _reset_user(self, ctx,
+                          member: Option(discord.Member,
+                                         "Optional: User to reset [Default: Self]",
+                                         required=False,
+                                         default=None)):
+        if member is None:
+            member = ctx.author
 
-    @commands.guild_only()
-    @is_in_guild(EVENT_GUILD_ID)
-    @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @register.slash_command(name="reset_me", guild_ids=[EVENT_GUILD_ID], description="Reset your roles for testing.")
-    async def _reset_me(self, ctx):
-        await self._reset_user_conversation(ctx, member=ctx.author)
-        await ctx.respond(f"Reset roles for {ctx.author.name}.")
-
-    @commands.guild_only()
-    @is_in_guild(EVENT_GUILD_ID)
-    @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @register.slash_command(name="reset_user", guids_ids=[EVENT_GUILD_ID], description="Reset a users\'s roles.")
-    async def _reset_user_conversation(self, ctx, member: discord.Member):
         self.log.info(f"reset_user_conversation [{member.display_name}]")
         guild = ctx.guild
         session = Session()
         participant = session.query(Participant). \
             filter(Participant.guild_id == guild.id,
                    Participant.discord_id == member.id).one_or_none()
+
+        del_cnt = session.query(ConvoState).filter(ConvoState.conversation == 'registration',
+                                                   ConvoState.guild_id == guild.id,
+                                                   ConvoState.discord_id == member.id).delete()
+        session.commit()
         if participant is not None:
             roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles])
             if participant.role.lower() == 'participant':
@@ -367,21 +383,22 @@ class Registrator(commands.Cog):
                 role = guild.get_role(roles[participant.role.lower()])
                 await member.remove_roles(role, reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
 
-            session.query(ConvoState).filter(ConvoState.conversation == 'registration',
-                                             ConvoState.guild_id == participant.guild_id,
-                                             ConvoState.discord_id == participant.discord_id).delete()
             session.delete(participant)
             session.commit()
+            await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}]")
         else:
-            ctx.respond(f"User")
+            if del_cnt > 0:
+                await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}].")
+            else:
+                await ctx.respond(f"**`ERROR:`** User [{member.display_name}] was not registered.")
 
-    @_reset_user_conversation.error
-    async def _reset_user_conversation_error(self, ctx, error):
+    @_reset_user.error
+    async def _reset_user_error(self, ctx, error):
         if isinstance(error, commands.MemberNotFound):
-            self.log.info(f"Error _reset_user_error: {error}")
-            await ctx.send(f"ERROR: Could not find user")
+            self.log.info(f"**`ERROR:`** _reset_user_error[{ctx.author.name}]: {error}")
+            await ctx.send(f"**`ERROR:`** Could not find user")
         if isinstance(error, commands.CheckFailure):
-            self.log.info(f"Error _reset_user_error: {error}")
+            self.log.info(f"**`ERROR:`** _reset_user_error[{ctx.author.name}]: {error}")
 
 
 def setup(bot):

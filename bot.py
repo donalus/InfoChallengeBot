@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import discord
 from discord.ext import commands
+from discord.commands import Option
 import os
 from dotenv import load_dotenv
 from models import init_db
@@ -42,6 +43,7 @@ extensions = ["manager", "registrator", "teambuilder"]
 # Configure intents
 intents = discord.Intents.default()
 intents.members = True
+intents.typing = False
 
 # Set up the bot
 bot = commands.Bot(

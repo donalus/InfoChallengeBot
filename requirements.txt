@@ -1,5 +1,6 @@
 #Requirements
-discord
+#py-cord
 validate_email_address
 sqlalchemy==1.3.24
 python-dotenv
+

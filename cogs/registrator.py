@@ -3,6 +3,7 @@ import os
 import ssl
 import discord
 from discord.ext import commands
+from discord.ui import View, Button
 import logging
 
 from sqlalchemy import update, delete
@@ -10,6 +11,8 @@ from validate_email_address import validate_email
 from models import Session, Registration, ConvoState, Participant
 
 from dotenv import load_dotenv
+
+from pycord.discord import ButtonStyle
 
 load_dotenv()
 
@@ -80,10 +83,11 @@ class RegistratorConvoFSM:
     def exec(self, **kwargs):
         self.log.info(f"fsm.exec: {self.state.state}")
         response = None
+        view = None
         if self.state.state:
             state_func = eval(f"self._{self.state.state}")
-            response = state_func(**kwargs)
-        return response
+            response, view = state_func(**kwargs)
+        return response, view
 
     def next_state(self):
         state_index = 0
@@ -99,8 +103,8 @@ class RegistratorConvoFSM:
 
     def set_state_email(self, email):
         self.log.info(f"fsm.set_state_email: {email}")
-        self.session.query(ConvoState).\
-            filter(ConvoState.id == self.state.id).\
+        self.session.query(ConvoState). \
+            filter(ConvoState.id == self.state.id). \
             update({'email': email})
         self.session.commit()
         self.state.email = email
@@ -108,20 +112,22 @@ class RegistratorConvoFSM:
     def set_state(self, state):
         self.log.info(f"fsm.set_state: {state}")
         self.state.state = state
-        self.session.query(ConvoState).\
-            filter(ConvoState.id == self.state.id).\
+        self.session.query(ConvoState). \
+            filter(ConvoState.id == self.state.id). \
             update({'state': state})
         self.session.commit()
 
     def _initiate(self, **kwargs):
         self.log.info(f"fsm._initiate: {kwargs}")
         self.next_state()
-        return f"Hello {self.member.name}, it looks like you need to complete your registration " \
-               f"for {self.guild.name}.\nPlease reply with your email address."
+        response = f"Hello {self.member.name}, it looks like you need to complete your registration " \
+                   f"for {self.guild.name}.\nPlease reply with your email address."
+        return response, None
 
     def _email(self, **kwargs):
         self.log.info(f"fsm._email: {kwargs}")
         response = "_email: No message?"
+        view = None
         if 'message' in kwargs:
             email = str(kwargs['message']).lower().strip()
             if validate_email(email):
@@ -134,6 +140,11 @@ class RegistratorConvoFSM:
                     self.log.info(f"fsm._email: unrecognized {email}")
                     response = f"I did not recognize the email \"{email}\". " \
                                f"Would you like to try again? (Reply with Yes or No)"
+                    view = View()
+                    yes_button = Button(label="Yes", emoji="✔", style=ButtonStyle.green)
+                    view.add_item(yes_button)
+                    no_button = Button(label="No", emoji="❌", style=ButtonStyle.red)
+                    view.add_item(no_button)
                     self.set_state('unrecognized')
                 else:
                     self.log.info(f"fsm._email: recognized {email}")
@@ -141,13 +152,41 @@ class RegistratorConvoFSM:
                                f"\tName: {reg_obj.full_name}\n" \
                                f"\tInstitution: {reg_obj.institution}\n" \
                                f"Is this you? (Reply with Yes or No)\n"
+                    view = View()
+
+                    class YesButton(Button):
+                        def __init__(self, convo_state):
+                            self.convo_state = convo_state
+                            super().__init__(label="Yes", emoji="✔", style=ButtonStyle.green)
+
+                        async def callback(self, interaction):
+                            msg, _ = self.convo_state.exec(message="yes")
+                            await self.convo_state.sync_server_roles()
+                            await interaction.delete_original_message()
+                            await interaction.followup.send_message(msg)
+
+                    yes_button = YesButton(self)
+                    view.add_item(yes_button)
+
+                    class NoButton(Button):
+                        def __init__(self, convo_state):
+                            self.convo_state = convo_state
+                            super().__init__(label="No", emoji="❌", style=ButtonStyle.red)
+
+                        async def callback(self, interaction):
+                            msg, _ = self.convo_state.exec(message="no")
+                            await interaction.response.edit_original_message("...")
+                            await interaction.followup.send_message(msg)
+
+                    no_button = NoButton(self)
+                    view.add_item(no_button)
                     self.set_state_email(email)
                     self.next_state()
             else:
                 self.log.info(f"fsm._email: invalid email {email}")
                 response = f"Hello {self.member.name}, that is not a valid email address.\n" \
                            f"Please reply with only the email address you used to register for {EVENT_NAME}."
-        return response
+        return response, view
 
     def _unrecognized(self, **kwargs):
         self.log.info(f"fsm._unrecognized: {kwargs}")
@@ -164,24 +203,25 @@ class RegistratorConvoFSM:
                 response = f"I'm sorry. I didn't understand your response.\n" \
                            f"Would you like to try another email address? (Reply with Yes or No)"
 
-        return response
+        return response, None
 
     def _confirm(self, **kwargs):
         self.log.info(f"fsm._confirm: {kwargs}")
         response = '_confirm: No message?'
+        view = None
         if 'message' in kwargs:
             reg_obj = self.session.query(Registration). \
                 filter(Registration.email == self.state.email,
                        Registration.guild_id == self.guild.id).one_or_none()
             if reg_obj is None:
                 self.set_state('unknown')
-                response = self.exec(**kwargs)
+                response, view = self.exec(**kwargs)
             else:
                 message = str(kwargs['message']).lower().strip()
                 if message == 'yes':
 
                     self.next_state()
-                    response = self.exec(**kwargs)
+                    response, view = self.exec(**kwargs)
                 elif message == 'no':
                     response = f"Would you like to try another email address? (Reply with Yes or No)"
                     self.set_state('unrecognized')
@@ -191,7 +231,7 @@ class RegistratorConvoFSM:
                                f"\tName: {reg_obj.full_name}\n" \
                                f"\tInstitution: {reg_obj.institution}\n" \
                                f"(Reply with Yes or No)\n"
-        return response
+        return response, view
 
     def _registered(self, **kwargs):
         self.log.info(f"fsm._registered: {kwargs}")
@@ -200,9 +240,10 @@ class RegistratorConvoFSM:
             filter(Registration.email == self.state.email,
                    Registration.guild_id == self.guild.id).one_or_none()
 
+        view = None
         if reg_obj is None:
             self.set_state('unknown')
-            response = self.exec(**kwargs)
+            response, view = self.exec(**kwargs)
         else:
             participant = self.session.query(Participant). \
                 filter(Participant.guild_id == self.guild.id,
@@ -218,11 +259,12 @@ class RegistratorConvoFSM:
 
             response = f"{self.member.name}, your registration is now complete. Congratulations!\n" \
                        f"You will now have access to the participate in the {EVENT_NAME} Discord."
-        return response
+        return response, view
 
     def _unknown(self, **kwargs):
         self.log.info(f"fsm._unknown: {self.member.id} - {self.member.name}")
-        return f"{self.member.name}, please email {EVENT_CONTACT_EMAIL} for support."
+        response = f"{self.member.name}, please email {EVENT_CONTACT_EMAIL} for support."
+        return response, None
 
     async def sync_server_roles(self):
         # Add Discord Roles.
@@ -277,8 +319,8 @@ class Registrator(commands.Cog):
                 member = guild.get_member(message.author.id)
                 reg_fsm = RegistratorConvoFSM(self.log, Session(), guild, member)
 
-                msg = reg_fsm.exec(message=message.content)
-                await message.reply(msg)
+                msg, view = reg_fsm.exec(message=message.content)
+                await message.reply(msg, view=view)
                 if reg_fsm.state.state == 'registered':
                     await reg_fsm.sync_server_roles()
             else:
@@ -286,40 +328,52 @@ class Registrator(commands.Cog):
                     f"I'm sorry. We don't share any servers, so I don't know how to help you."
                 )
 
-    @commands.command(name='reset_me', hidden=True)
     @commands.guild_only()
     @is_in_guild(EVENT_GUILD_ID)
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @commands.create_group(name="register", guild_ids=[EVENT_GUILD_ID],
+                           description="Commands for handling user registrations")
+    async def register(self, ctx):
+        await ctx.respond(f"{ctx.author.name} said...")
+
+    @commands.guild_only()
+    @is_in_guild(EVENT_GUILD_ID)
+    @is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @register.slash_command(name="reset_me", guild_ids=[EVENT_GUILD_ID], description="Reset your roles for testing.")
     async def _reset_me(self, ctx):
         await self._reset_user_conversation(ctx, member=ctx.author)
+        await ctx.respond(f"Reset roles for {ctx.author.name}.")
 
-    @commands.command(name='reset_user', hidden=True)
     @commands.guild_only()
     @is_in_guild(EVENT_GUILD_ID)
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    async def _reset_user_conversation(self, ctx, *, member: discord.Member):
+    @register.slash_command(name="reset_user", guids_ids=[EVENT_GUILD_ID], description="Reset a users\'s roles.")
+    async def _reset_user_conversation(self, ctx, member: discord.Member):
         self.log.info(f"reset_user_conversation [{member.display_name}]")
         guild = ctx.guild
         session = Session()
         participant = session.query(Participant). \
             filter(Participant.guild_id == guild.id,
                    Participant.discord_id == member.id).one_or_none()
-        roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles])
-        if participant.role.lower() == 'participant':
-            participant_role = guild.get_role(roles['participant'])
-            institution_role = guild.get_role(roles[participant.institution.lower()])
-            await member.remove_roles(participant_role,
-                                      institution_role,
-                                      reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
-        else:
-            role = guild.get_role(roles[participant.role.lower()])
-            await member.remove_roles(role, reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
+        if participant is not None:
+            roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles])
+            if participant.role.lower() == 'participant':
+                participant_role = guild.get_role(roles['participant'])
+                institution_role = guild.get_role(roles[participant.institution.lower()])
+                await member.remove_roles(participant_role,
+                                          institution_role,
+                                          reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
+            else:
+                role = guild.get_role(roles[participant.role.lower()])
+                await member.remove_roles(role, reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
 
-        session.query(ConvoState).filter(ConvoState.conversation == 'registration',
-                                         ConvoState.guild_id == participant.guild_id,
-                                         ConvoState.discord_id == participant.discord_id).delete()
-        session.delete(participant)
-        session.commit()
+            session.query(ConvoState).filter(ConvoState.conversation == 'registration',
+                                             ConvoState.guild_id == participant.guild_id,
+                                             ConvoState.discord_id == participant.discord_id).delete()
+            session.delete(participant)
+            session.commit()
+        else:
+            ctx.respond(f"User")
 
     @_reset_user_conversation.error
     async def _reset_user_conversation_error(self, ctx, error):

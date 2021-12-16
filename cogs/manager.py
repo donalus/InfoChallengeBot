@@ -40,8 +40,8 @@ class Manager(commands.Cog):
 
     @commands.guild_only()
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @manager_group.command(name='test')
-    async def _test(self, ctx):
+    @manager_group.command(name='debug', description="🚫 [RESTRICTED] Debug information.")
+    async def _debug(self, ctx):
         is_owner = await self.bot.is_owner(ctx.author)
 
         guild = ctx.guild
@@ -49,24 +49,24 @@ class Manager(commands.Cog):
         bot_manager_role = [r for r in roles if r.name == 'Planning Team'].pop()
 
         response = f"Test info:\n" \
-                   f"\tChannel ID: {ctx.channel.id}\n" \
-                   f"\tChannel Name: {ctx.channel.name}\n" \
                    f"\tGuild ID: {ctx.guild.id}\n" \
                    f"\tGuild Name: {ctx.guild.name}\n" \
+                   f"\tChannel ID: {ctx.channel.id}\n" \
+                   f"\tChannel Name: {ctx.channel.name}\n" \
                    f"\tMember ID: {ctx.author.id}\n" \
                    f"\tMember Name: {ctx.author.name}\n" \
                    f"\tIs Owner: {is_owner}\n" \
-                   f"\tTeam ID: {bot_manager_role.id}"
+                   f"\tTeam Role ID: {bot_manager_role.id}"
         self.log.info(response)
         await ctx.respond(response)
 
-    @_test.error
-    async def _test_error(self, ctx, error):
+    @_debug.error
+    async def _debug_error(self, ctx, error):
         self.log.info(f"**`ERROR:`** Test[{ctx.author.name}]: {type(error).__name__} - {error}")
 
     @commands.guild_only()
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @manager_group.command(name='unload_cog')
+    @manager_group.command(name='unload_cog', description="🚫 [RESTRICTED] Unload cog")
     async def _unload_cog(self, ctx, *, cog: Option(str, "What cog do you want to unload?")):
         self.log.info(f"unload_cog [cogs.{cog}] of {len(self.bot.extensions)}: {ctx.author.name}")
 
@@ -88,7 +88,7 @@ class Manager(commands.Cog):
 
     @commands.guild_only()
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @manager_group.command(name='load_cog')
+    @manager_group.command(name='load_cog', description="🚫 [RESTRICTED] Load cog")
     async def _load_cog(self, ctx, *, cog: Option(str, "What cog do you want to load?")):
         self.log.info(f"load_cog [cogs.{cog}] of {len(self.bot.extensions)}: {ctx.author.name}")
         try:
@@ -106,7 +106,7 @@ class Manager(commands.Cog):
 
     @commands.guild_only()
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @manager_group.command(name='purge')
+    @manager_group.command(name='purge', description="🚫 [RESTRICTED] Purge messages from a channel")
     async def _purge(self, ctx,
                      channel: Option(discord.TextChannel, "Which channel do you want to purge?"),
                      limit: Option(int, "Optional number of messages to remove. [Default: 10]", required=False,

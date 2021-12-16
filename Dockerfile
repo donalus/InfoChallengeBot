@@ -5,6 +5,8 @@ WORKDIR /app
 RUN apk update && apk upgrade && \
     apk add cargo gcc g++ libffi-dev
 
+RUN pip3 install --upgrade pip
+
 # Install all Python requirements
 COPY requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt

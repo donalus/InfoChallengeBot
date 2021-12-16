@@ -1,23 +1,19 @@
-from pathlib import Path
 import os
-import ssl
 import discord
 from discord.ext import commands
 from discord.ui import View, Button
+from discord import ButtonStyle
 from discord.commands import Option, SlashCommandGroup, Permission
 import logging
 
-from sqlalchemy import update, delete
 from validate_email_address import validate_email
 from models import Session, Registration, ConvoState, Participant
 
 from dotenv import load_dotenv
 
-from pycord.discord import ButtonStyle
 
 load_dotenv()
 
-IS_PRODUCTION = os.getenv('is_production')
 EVENT_NAME = os.getenv('event_name')
 EVENT_GUILD_ID = int(os.getenv('event_guild_id'))
 EVENT_CONTACT_EMAIL = os.getenv('event_contact_email')
@@ -25,11 +21,8 @@ EVENT_BOT_CHANNEL_ID = int(os.getenv('event_bot_channel_id'))
 BOT_MANAGER_ROLE_ID = int(os.getenv('bot_manager_role_id'))
 GUILD_OWNER_ID = int(os.getenv('guild_owner_id'))
 
-DATA_DIR = os.getenv('data_dir')
-BOT_KEY = os.getenv('bot_prefix')
+IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
-current_dir = Path('.')
-data_path = current_dir / DATA_DIR
 
 
 # This is a mixin to make sure that these commands only work in the channel specified.
@@ -40,13 +33,13 @@ def is_in_channel(channel_id):
     return commands.check(channel_predicate)
 
 
-class Confirm(discord.ui.View):
+class Confirm(View):
     def __init__(self, convo):
         super().__init__()
         self.convo = convo
 
     @discord.ui.button(label="Yes", emoji="✔", style=ButtonStyle.green)
-    async def yes(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def yes(self, button: Button, interaction: discord.Interaction):
         msg, view = self.convo.exec(message="yes")
 
         # Yes, this is a gross place for this to be...
@@ -62,7 +55,7 @@ class Confirm(discord.ui.View):
         self.stop()
 
     @discord.ui.button(label="No", emoji="❌", style=ButtonStyle.grey)
-    async def no(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def no(self, button: Button, interaction: discord.Interaction):
         msg, view = self.convo.exec(message="no")
 
         # Apparently pycord doesn't like view to be present and none...
@@ -74,6 +67,7 @@ class Confirm(discord.ui.View):
         self.stop()
 
 
+# Finite State Machine "model" of a registration conversation
 class RegistratorConvoFSM:
     _state: ConvoState
     member: discord.Member
@@ -329,8 +323,6 @@ class Registrator(commands.Cog):
         if message.content.startswith(self.bot.command_prefix):
             return
         if not message.guild:
-            session = Session()
-            count = session.query(Participant).filter(Participant.discord_id == message.author.id).count()
             shared_guild_ids = [g.id for g in message.author.mutual_guilds]
 
             if EVENT_GUILD_ID in shared_guild_ids:
@@ -351,7 +343,7 @@ class Registrator(commands.Cog):
 
     @commands.guild_only()
     @is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @registrator_group.command(name="reset", description="Reset a users\'s roles.")
+    @registrator_group.command(name="reset", description="🚫 [RESTRICTED] Reset a users\'s roles.")
     async def _reset_user(self, ctx,
                           member: Option(discord.Member,
                                          "Optional: User to reset [Default: Self]",

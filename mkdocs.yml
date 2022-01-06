@@ -1,0 +1,5 @@
+site_name: Information Challenge Concierge
+nav:
+  - Home: index.md
+  - About: about.md
+

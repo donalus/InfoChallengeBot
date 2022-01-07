@@ -3,7 +3,7 @@ WORKDIR /app
 
 # These are required for the pycord[speed] extensions
 RUN apk update && apk upgrade && \
-    apk add cargo gcc g++ libffi-dev
+    apk add cargo gcc g++ libffi-dev patchelf
 
 RUN pip3 install --upgrade pip
 

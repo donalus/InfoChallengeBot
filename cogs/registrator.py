@@ -1,16 +1,16 @@
 import os
-import discord
+import discord as discord
 from discord.ext import commands
 from discord.ui import View, Button
 from discord import ButtonStyle
-from discord.commands import Option, SlashCommandGroup, Permission
-import logging
+from discord.commands import Option, SlashCommandGroup, CommandPermission
 
 from validate_email_address import validate_email
 from models import Session, Registration, ConvoState, Participant
 
-from dotenv import load_dotenv
+from common import logging, checks
 
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -23,14 +23,6 @@ GUILD_OWNER_ID = int(os.getenv('guild_owner_id'))
 
 IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
-
-
-# This is a mixin to make sure that these commands only work in the channel specified.
-def is_in_channel(channel_id):
-    async def channel_predicate(ctx):
-        return ctx.channel and ctx.channel.id == channel_id
-
-    return commands.check(channel_predicate)
 
 
 class Confirm(View):
@@ -290,7 +282,7 @@ class RegistratorConvoFSM:
 class Registrator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.log = logging.getLogger(LOGGING_STR)
+        self.log = logging.get_module_logger(LOGGING_STR)
         self.log.info(f"Booting up Cog: Registrations")
 
     registrator_group = SlashCommandGroup(
@@ -298,10 +290,10 @@ class Registrator(commands.Cog):
         "Commands to manage registrations",
         guild_ids=[EVENT_GUILD_ID],
         permissions=[
-            Permission(
+            CommandPermission(
                 BOT_MANAGER_ROLE_ID, 1, True
             ),  # Only Users in Planning Team
-            Permission(
+            CommandPermission(
                 GUILD_OWNER_ID, 2, True
             ),  # Always allow owner
         ]
@@ -342,7 +334,7 @@ class Registrator(commands.Cog):
                 )
 
     @commands.guild_only()
-    @is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
     @registrator_group.command(name="reset", description="🚫 [RESTRICTED] Reset a users\'s roles.")
     async def _reset_user(self, ctx,
                           member: Option(discord.Member,
@@ -377,18 +369,18 @@ class Registrator(commands.Cog):
 
             session.delete(participant)
             session.commit()
-            await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}]")
+            await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}]", ephemeral=True)
         else:
             if del_cnt > 0:
-                await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}].")
+                await ctx.respond(f"**`SUCCESS:`** Reset user [{member.display_name}].", ephemeral=True)
             else:
-                await ctx.respond(f"**`ERROR:`** User [{member.display_name}] was not registered.")
+                await ctx.respond(f"**`ERROR:`** User [{member.display_name}] was not registered.", ephemeral=True)
 
     @_reset_user.error
     async def _reset_user_error(self, ctx, error):
         if isinstance(error, commands.MemberNotFound):
             self.log.info(f"**`ERROR:`** _reset_user_error[{ctx.author.name}]: {error}")
-            await ctx.send(f"**`ERROR:`** Could not find user")
+            await ctx.send(f"**`ERROR:`** Could not find user", ephemeral=True)
         if isinstance(error, commands.CheckFailure):
             self.log.info(f"**`ERROR:`** _reset_user_error[{ctx.author.name}]: {error}")
 

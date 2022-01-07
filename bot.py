@@ -6,6 +6,7 @@ from discord.commands import Option
 import os
 from dotenv import load_dotenv
 from models import init_db
+from common import logging
 
 load_dotenv()
 
@@ -21,20 +22,6 @@ BOT_TOKEN = os.getenv('bot_token')
 EVENT_BOT_ROLES = ['Planning Team']
 current_dir = Path('.')
 data_path = current_dir / DATA_DIR
-
-
-def get_module_logger(mod_name):
-    """
-    To use this, do logger = get_module_logger(__name__)
-    """
-    logger = logging.getLogger(mod_name)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        '%(asctime)s [%(name)-12s] %(levelname)-8s %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    return logger
 
 
 # Extensions (cogs) to load
@@ -66,7 +53,7 @@ async def on_ready():
 
 
 if __name__ == '__main__':
-    log = get_module_logger('IC-BOT-DISCORD')
+    log = logging.get_module_logger(LOGGING_STR)
     log.info(f"Start automatic ground launch sequencer.")
 
     init_db()

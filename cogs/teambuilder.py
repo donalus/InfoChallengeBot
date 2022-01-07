@@ -1,11 +1,11 @@
 import os
 import re
-import discord
+import discord as discord
 from discord.ext import commands
 from discord.ui import View, Button
-from discord.commands import Option, SlashCommandGroup, Permission
+from discord.commands import permissions, Option, SlashCommandGroup, CommandPermission
 
-import logging
+from common import logging, checks
 
 from dotenv import load_dotenv
 
@@ -22,18 +22,10 @@ IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
 
 
-# This is a mixin to make sure that these commands only work in the channel specified.
-def is_in_channel(channel_id):
-    async def channel_predicate(ctx):
-        return ctx.channel and ctx.channel.id == channel_id
-
-    return commands.check(channel_predicate)
-
-
 class TeamBuilder(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.log = logging.getLogger(LOGGING_STR)
+        self.log = logging.get_module_logger(LOGGING_STR)
         self.log.info(f"Booting up Cog: TeamBuilder")
 
     tb_group = SlashCommandGroup(
@@ -43,9 +35,10 @@ class TeamBuilder(commands.Cog):
     )
 
     @commands.guild_only()
-    @is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @permissions.has_role("Discord Managers")
     @tb_group.command(name="create", description="🚫 [RESTRICTED] Add participant teams",
-                      permissions=[Permission(GUILD_OWNER_ID, 2, True)])
+                      permissions=[CommandPermission(GUILD_OWNER_ID, 2, True)])
     async def _create(self, ctx, num: Option(int, "Number to create [Default: 1]", required=False, default=1)):
         guild = ctx.guild
 
@@ -56,13 +49,15 @@ class TeamBuilder(commands.Cog):
         if len(team_cats) > 0:
             max_cur_team_num = max(team_cats)
 
+        await ctx.respond(f"Adding {num} teams.", ephemeral=True)
+
         for n in range(1, 1 + num):
             next_team_num = max_cur_team_num + n
             team_name = f"Team {next_team_num}"
             team_prefix = f"team-{next_team_num}"
-            permissions = discord.Permissions.none()
+            perms = discord.Permissions.none()
             new_team_role = await guild.create_role(name=team_name,
-                                                    permissions=permissions)
+                                                    permissions=perms)
             roles = [(r.name, r) for r in guild.roles if r.name in ['Volunteer', 'DSA', 'Dataset Partner']]
             roles_dict = dict(roles)
 
@@ -94,7 +89,8 @@ class TeamBuilder(commands.Cog):
 
             await cat.create_text_channel(f"{team_prefix}-text")
             await cat.create_voice_channel(f"{team_prefix}-voice")
-        await ctx.respond(f"Add {num} teams.")
+
+        await ctx.respond(f"**`SUCCESS:`** Created {num} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _create_teams: {ctx.author.name} created {num} teams.")
 
     @_create.error
@@ -103,9 +99,10 @@ class TeamBuilder(commands.Cog):
             self.log.info(f"**`ERROR:`** _create_teams[{ctx.author.name}]: {error}")
 
     @commands.guild_only()
-    @is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @permissions.has_role("Discord Managers")
     @tb_group.command(name="delete", description="🚫 [RESTRICTED] Delete participant teams",
-                      permissions=[Permission(GUILD_OWNER_ID, 2, True)])
+                      permissions=[CommandPermission(GUILD_OWNER_ID, 2, True)])
     async def _delete(self, ctx, num: Option(int, "Number to delete [Default: 1]", required=False, default=1)):
         self.log.info(f"{ctx.author.name} called '/teams delete num:{num}'")
         guild = ctx.guild
@@ -126,6 +123,8 @@ class TeamBuilder(commands.Cog):
         else:
             cats_to_iter = category_index[:num]
 
+        await ctx.respond(f"Deleting {len(cats_to_iter)} teams.", ephemeral=True)
+
         for n in cats_to_iter:
             cat = categories[n]
 
@@ -143,7 +142,7 @@ class TeamBuilder(commands.Cog):
 
             cnt = cnt + 1
 
-        await ctx.respond(f"Deleted {cnt} teams.")
+        await ctx.respond(f"**`SUCCESS:`** Deleted {cnt} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _delete_teams: {ctx.author.name} deleted {cnt} teams.")
 
     @_delete.error

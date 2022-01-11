@@ -292,7 +292,7 @@ class Registrator(commands.Cog):
         permissions=[
             CommandPermission(
                 BOT_MANAGER_ROLE_ID, 1, True
-            ),  # Only Users in Planning Team
+            ),  # Only Users in Discord Managers
             CommandPermission(
                 GUILD_OWNER_ID, 2, True
             ),  # Always allow owner

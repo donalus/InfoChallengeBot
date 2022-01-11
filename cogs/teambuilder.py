@@ -31,14 +31,17 @@ class TeamBuilder(commands.Cog):
     tb_group = SlashCommandGroup(
         "teams",
         "Commands to manage teams",
-        guild_ids=[EVENT_GUILD_ID]
+        guild_ids=[EVENT_GUILD_ID],
+        permissions=[
+            CommandPermission(
+                GUILD_OWNER_ID, 2, True
+            ),  # Always allow owner
+        ]
     )
 
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @permissions.has_role("Discord Managers")
-    @tb_group.command(name="create", description="🚫 [RESTRICTED] Add participant teams",
-                      permissions=[CommandPermission(GUILD_OWNER_ID, 2, True)])
+    @tb_group.command(name="create", description="🚫 [RESTRICTED] Add participant teams")
     async def _create(self, ctx, num: Option(int, "Number to create [Default: 1]", required=False, default=1)):
         guild = ctx.guild
 
@@ -100,9 +103,7 @@ class TeamBuilder(commands.Cog):
 
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @permissions.has_role("Discord Managers")
-    @tb_group.command(name="delete", description="🚫 [RESTRICTED] Delete participant teams",
-                      permissions=[CommandPermission(GUILD_OWNER_ID, 2, True)])
+    @tb_group.command(name="delete", description="🚫 [RESTRICTED] Delete participant teams")
     async def _delete(self, ctx, num: Option(int, "Number to delete [Default: 1]", required=False, default=1)):
         self.log.info(f"{ctx.author.name} called '/teams delete num:{num}'")
         guild = ctx.guild

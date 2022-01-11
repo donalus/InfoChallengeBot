@@ -12,6 +12,7 @@ load_dotenv()
 LOGGING_STR = os.getenv('logging_str')
 EVENT_GUILD_ID = int(os.getenv('event_guild_id'))
 EVENT_BOT_CHANNEL_ID = int(os.getenv('event_bot_channel_id'))
+BOT_MANAGER_ROLE_ID = int(os.getenv('bot_manager_role_id'))
 GUILD_OWNER_ID = int(os.getenv('guild_owner_id'))
 
 
@@ -27,14 +28,15 @@ class Manager(commands.Cog):
         guild_ids=[EVENT_GUILD_ID],
         permissions=[
             CommandPermission(
+                BOT_MANAGER_ROLE_ID, 1, True
+            ),  # Only Users in Discord Managers
+            CommandPermission(
                 GUILD_OWNER_ID, 2, True
             )  # Ensures the owner_id user can access this, and no one else
         ]
     )
 
     @commands.guild_only()
-    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @permissions.has_role("Discord Managers")
     @manager_group.command(name='debug', description="🚫 [RESTRICTED] Debug information.")
     async def _debug(self, ctx):
         is_owner = await self.bot.is_owner(ctx.author)
@@ -102,13 +104,19 @@ class Manager(commands.Cog):
         self.log.info(f"**`ERROR:`** Load Cog[{ctx.author.name}]: {type(error).__name__} - {error}")
 
     @commands.guild_only()
-    @permissions.has_any_role("Discord Managers", "Planning Team", "Volunteer")
     @manager_group.command(name='purge', description="🚫 [RESTRICTED] Purge messages from a channel")
     async def _purge(self, ctx,
-                     channel: Option(discord.TextChannel, "Which channel do you want to purge?"),
-                     limit: Option(int, "Optional: number of messages to remove. [Default: 10]", required=False,
+                     channel: Option(discord.TextChannel, "Which channel do you want to purge? [Default: Current]",
+                                     required=False,
+                                     default=None),
+                     limit: Option(int, "Optional: number of messages to remove. [Default: 10]",
+                                   required=False,
                                    default=10),
-                     user: Option(discord.Member, "Optional: remove messages by specified user.", required=False, default=None)):
+                     user: Option(discord.Member, "Optional: remove messages by specified user.",
+                                  required=False,
+                                  default=None)):
+        if channel is None:
+            channel = ctx.channel
         if user is not None:
             deleted = await channel.purge(limit=limit, check=lambda m: m.author == user)
         else:

@@ -57,7 +57,6 @@ RUN mkdir data
 
 COPY /src .
 COPY .env ./
-#CMD tail -f /dev/null
 
 ENTRYPOINT ./docker-entrypoint.sh $0 $@
 CMD ["python", "bot.py"]

@@ -1,0 +1,17 @@
+####
+# Example dotenv file
+# Rename to .env and change settings for deploytment
+####
+# Development Settings
+is_production=False
+bot_token=<YOUR BOT TOKEN>
+bot_prefix=!
+event_name=InfoChallenge 2022
+event_guild_id=<YOUR GUILD ID>
+event_bot_channel_id=<THE BOT CHANNEL ID>
+event_contact_email=<CONTACT EMAIL FOR SUPPORT>
+db_conn_uri=sqlite:///db.sqlite3
+data_dir=data
+guild_owner_id=<OWNER ID>
+bot_manager_role_id=<ROLE WITH PERMISSIONS TO MANAGE BOT>
+logging_str=IC-BOT-DISCORD

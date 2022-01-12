@@ -1,8 +1,7 @@
-import logging
 from pathlib import Path
 import discord
 from discord.ext import commands
-from discord.commands import Option
+
 import os
 from dotenv import load_dotenv
 from models import init_db

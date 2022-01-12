@@ -1,4 +1,4 @@
-# InfoChallengeConcierge
+# InfoChallengeBot
 Discord Registration Bot for the UMD Information Challenge
 
 

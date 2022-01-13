@@ -10,6 +10,8 @@ event_name=InfoChallenge 2022
 event_guild_id=<YOUR GUILD ID>
 event_bot_channel_id=<THE BOT CHANNEL ID>
 event_contact_email=<CONTACT EMAIL FOR SUPPORT>
+# sqlite is for development only
+# Mariadb or another sqlalchemy supported database is recommended for production.
 db_conn_uri=sqlite:///db.sqlite3
 data_dir=data
 guild_owner_id=<OWNER ID>

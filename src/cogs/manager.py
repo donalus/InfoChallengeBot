@@ -45,7 +45,7 @@ class Manager(commands.Cog):
         roles = guild.roles
         bot_manager_role = [r for r in roles if r.name == 'Planning Team'].pop()
 
-        response = f"Test info:\n" \
+        response = f"Debug info:\n" \
                    f"\tGuild ID: {ctx.guild.id}\n" \
                    f"\tGuild Name: {ctx.guild.name}\n" \
                    f"\tChannel ID: {ctx.channel.id}\n" \

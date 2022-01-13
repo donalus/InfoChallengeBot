@@ -1,5 +1,7 @@
-site_name: Information Challenge Concierge
+site_name: InfoChallengeBot
 nav:
   - Home: index.md
+  - Registration: registration.md
   - About: about.md
+theme: readthedocs
 

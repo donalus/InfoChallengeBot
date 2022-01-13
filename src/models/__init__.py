@@ -3,6 +3,8 @@ import os
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Integer
+from sqlalchemy.dialects.mysql import BIGINT
 
 from dotenv import load_dotenv
 
@@ -13,6 +15,11 @@ DB_CONN_URI = os.environ['db_conn_uri']
 engine = create_engine(DB_CONN_URI)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
+
+# Make an UnsignedInt that is compat with both sqlite and MariaDB
+UnsignedInt = Integer()
+UnsignedInt = UnsignedInt.with_variant(BIGINT(unsigned=True), 'mysql')
+UnsignedInt = UnsignedInt.with_variant(BIGINT(unsigned=True), 'mariadb')
 
 __all__ = ['Session', 'Registration', 'ConvoState', 'Participant', 'init_db']
 

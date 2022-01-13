@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String
-from . import Base
+from . import Base, UnsignedInt
 
 from dotenv import load_dotenv
 import os
@@ -49,7 +49,7 @@ class Registration(Base):
     __tablename__ = 'registrations'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    guild_id = Column(Integer, nullable=False)
+    guild_id = Column(UnsignedInt, nullable=False)
     full_name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=False)

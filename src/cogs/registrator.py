@@ -163,14 +163,25 @@ class RegistratorConvoFSM:
 
                     self.set_state('unrecognized')
                 else:
-                    self.log.info(f"fsm._email: recognized {email}")
-                    response = f"I have found a registration for {reg_obj.full_name}.\n" \
-                               f"Is this correct? (Click on your response)\n"
 
-                    view = Confirm(self)
+                    part_obj = self.session.query(Participant). \
+                        filter(Participant.email == email,
+                               Participant.guild_id == self.guild.id).one_or_none()
 
-                    self.set_state_email(email)
-                    self.next_state()
+                    if part_obj is None or part_obj.discord_id == self.member.id:
+                        self.log.info(f"fsm._email: recognized {email}")
+                        response = f"I have found a registration for {reg_obj.full_name}.\n" \
+                                   f"Is this correct? (Click on your response)\n"
+
+                        view = Confirm(self)
+
+                        self.set_state_email(email)
+                        self.next_state()
+                    else:
+                        self.log.info(f"fsm._email: Duplicate email {email}")
+
+                        self.set_state('unknown')
+                        response, view = self.exec(**kwargs)
             else:
                 self.log.info(f"fsm._email: invalid email {email}")
                 response = f"Hello {self.member.name}, that is not a valid email address.\n" \

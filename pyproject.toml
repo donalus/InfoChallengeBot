@@ -14,6 +14,9 @@ SQLAlchemy = "^1.4.29"
 py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev = "8ed1a43", extras = ["speed"]}
 mariadb = "^1.0.9"
 
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1.2.3"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -24,47 +24,14 @@ This bot requires a significant amount of programming and technical know-how and
 intended as an off-the-shelf product. The authors and contributors to this project may respond to 
 your questions, but use at your own risk.
 
-## Installing
+## Quick Start 
+To quickly get running 
+1. Clone repository
+2. cd into directory
+3. Run `poetry install`
+4. Edit the values in the dotenv file and rename to `.env`
+5. Run `poetry run python src/bot.py`
 
-
-### Requirements
-- **Python 3.8 or greater is required.**
-- [Poetry](https://github.com/python-poetry/poetry)
-- [Docker](https://www.docker.com/)
-- Platform-specific:
-    - Windows: 
-        - Microsoft C++ Build Tools
-    - Linux:
-        - Dev tools
-
-### Configuration
-
-This project uses a dotenv file to pass "secret" information to the application. The most important of which is 
-the discord bot token. Information about getting a bot token can be found here: https://discord.com/developers/applications
-
-This bot requires the following:
-
-Scopes:
-- bot
-- application.commands
-- 
-Bot Permissions:
-- Administrator
-
-The bot also requires the following Privileged Gateway Intents:
-- Presence Intent
-- Server Members Intent
-- Message Content Intent
-
-In the future, it may be possible to reduce the number of permissions required for the bot to run.
-
-### Steps to install locally:
-
-1. Clone repository && cd into directory
-2. Run `poetry install`
-3. Run `poetry run python src/bot.py`
-
-### Steps to run in docker:
-
-1. Clone repository && cd into directory
-2. Run `docker build -f docker/Dockerfile -t infochallengebot . && docker run --name InfoChallengeBot infochallengebot `
+## To Access Documentation
+Documentation is provided through mkdocs. You can start up a mkdocs server with the command `poetry run mkdocs serve` 
+after completing the installation instructions.

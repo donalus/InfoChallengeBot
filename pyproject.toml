@@ -12,6 +12,7 @@ python-dotenv = "^0.19.2"
 validate-email-address = "^1"
 SQLAlchemy = "^1.4.29"
 py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev = "8ed1a43", extras = ["speed"]}
+mariadb = "^1.0.9"
 
 [build-system]
 requires = ["poetry-core"]

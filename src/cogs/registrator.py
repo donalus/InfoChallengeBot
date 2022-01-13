@@ -304,7 +304,7 @@ class Registrator(commands.Cog):
         if member.bot is True:
             return
 
-        reg_fsm = RegistratorConvoFSM(Session(), member.guild, member)
+        reg_fsm = RegistratorConvoFSM(self.log, Session(), member.guild, member)
         msg, view = reg_fsm.exec()
         await member.send(msg)
 

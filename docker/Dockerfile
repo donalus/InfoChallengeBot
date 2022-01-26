@@ -20,24 +20,25 @@ ENV PATH="${POETRY_HOME}/bin:$VENV_PATH/bin:$PATH"
 
 # These are required for the pycord[speed] extensions
 RUN apk update && apk upgrade && \
-    apk add cargo gcc g++ libffi-dev patchelf
+    apk add cargo gcc g++ libffi-dev patchelf curl git
 
 ###############################################
 # Builder Image
 ###############################################
 FROM python-base as builder-base
 
-RUN apk add curl git
+# These are required for connecting to different databases with sqlalchemy
+RUN apk add mariadb-connector-c-dev
 
-# Install all Python requirements
-RUN curl -sSL https://install.python-poetry.org | python3 -
+# Install all Python requirements (requires version 1.20.0a2 or better)
+RUN curl -sSL https://install.python-poetry.org | python3 - --preview
 
 # copy project requirement files here to ensure they will be cached.
 WORKDIR $PYSETUP_PATH
 COPY ../poetry.lock ../pyproject.toml ./
 
 # install runtime deps - uses $POETRY_VIRTUALENVS_IN_PROJECT internally
-RUN poetry install --without dev
+RUN poetry install --without dev,utils,docs
 
 ###############################################
 # Production Image
@@ -60,3 +61,4 @@ COPY .env ./
 
 ENTRYPOINT ./docker-entrypoint.sh $0 $@
 CMD ["python", "bot.py"]
+# CMD ["sh", "while true; do sleep 1; echo '.'; done;"]

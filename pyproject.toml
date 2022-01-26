@@ -7,15 +7,18 @@ authors = ["Donal Heidenblad <dheidenb@umd.edu>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.8"
 python-dotenv = "^0.19.2"
 validate-email-address = "^1"
 SQLAlchemy = "^1.4.29"
-py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev = "8ed1a43", extras = ["speed"]}
+py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev = "eb981d3132e224cf3e22db98e7eb62cca5b8d243", extras = ["speed"]}
 mariadb = "^1.0.9"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.2.3"
+
+[tool.poetry.group.utils.dependencies]
+pandas = "^1.3.5"
 
 [build-system]
 requires = ["poetry-core"]

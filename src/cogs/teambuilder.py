@@ -1,12 +1,13 @@
 import os
 import re
+
 import discord as discord
+from discord.commands import CommandPermission, Option, SlashCommandGroup
 from discord.ext import commands
-from discord.commands import Option, SlashCommandGroup, CommandPermission
-
-from common import logging, checks
-
 from dotenv import load_dotenv
+
+from common import checks, logging
+from models import Participant, Session, Team, TeamRegistration
 
 load_dotenv()
 
@@ -38,14 +39,106 @@ class TeamBuilder(commands.Cog):
         ]
     )
 
+    def _filter_team_cats(self, guild):
+        tnm = re.compile('^Team ([0-9]+)')
+        team_cats = [int(tnm.match(c.name).group(1)) for c in guild.categories if tnm.match(c.name) is not None]
+        return team_cats
+
+    async def _create_team(self, session, team_name, guild: discord.Guild):
+        perms = discord.Permissions.none()
+        team_role = await guild.create_role(name=team_name,
+                                            permissions=perms)
+        team = Team(team_name=team_name,
+                    guild_id=guild.id,
+                    team_role_id=team_role.id)
+        session.add(team)
+        session.commit()
+
+        roles = [(r.name, r) for r in guild.roles if r.name in ['Volunteer', 'IC Advisor', 'Project Partner']]
+        roles_dict = dict(roles)
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            team_role: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                send_messages_in_threads=True,
+                create_public_threads=True,
+                create_private_threads=False,
+                read_messages=True,
+                read_message_history=True,
+                embed_links=True,
+                attach_files=True,
+                add_reactions=True,
+                mention_everyone=True,
+                connect=True,
+                speak=True,
+                stream=True,
+                use_voice_activation=True,
+            ),
+            roles_dict['Volunteer']: discord.PermissionOverwrite(view_channel=True),
+            roles_dict['IC Advisor']: discord.PermissionOverwrite(view_channel=True),
+            roles_dict['Project Partner']: discord.PermissionOverwrite(view_channel=True)
+        }
+
+        cat = await guild.create_category_channel(team_name, overwrites=overwrites)
+
+        chan_prefix = team_name.strip().replace(' ', '-').lower()
+        await cat.create_text_channel(f"{chan_prefix}-text")
+        await cat.create_voice_channel(f"{chan_prefix}-voice")
+        return team
+
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @tb_group.command(name="create", description="🚫 [RESTRICTED] Add participant teams")
-    async def _create(self, ctx, num: Option(int, "Number to create [Default: 1]", required=False, default=1)):
-        guild = ctx.guild
+    @tb_group.command(name="buildteams", description="🚫 [RESTRICTED] Build teams from registered teams")
+    async def _build_teams(self, ctx):
+        session = Session()
+        num_teams = session.query(TeamRegistration). \
+            filter(TeamRegistration.guild_id == ctx.guild.id). \
+            group_by(TeamRegistration.team_name). \
+            count()
 
-        tnm = re.compile('^Team ([0-9]+)')
-        team_cats = [int(tnm.match(c.name).group(1)) for c in guild.categories if tnm.match(c.name)]
+        await ctx.respond(f"**`START:`** _build_teams: Building {num_teams} Teams", ephemeral=True)
+        self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {num_teams} teams.")
+
+        team_members = session.query(TeamRegistration). \
+            filter(TeamRegistration.guild_id == ctx.guild.id). \
+            order_by(TeamRegistration.team_name). \
+            all()
+
+        # Empty Team to start because None doesn't work
+        cur_team = None
+        for member in team_members:
+            # if a new team, make one and set it to cur_team
+            if cur_team is None or cur_team.team_name != member.team_name:
+                await ctx.respond(f"Creating Team: {member.team_name}", ephemeral=True)
+                team = await self._create_team(session, member.team_name, ctx.guild)
+                cur_team = team
+
+            participant = session.query(Participant). \
+                filter(Participant.email == member.email,
+                       Participant.guild_id == ctx.guild.id). \
+                one_or_none()
+            if participant is None:
+                await ctx.respond(f"**`WARNING:`** _build_teams: No registered participant for {member.email}",
+                                  ephemeral=True)
+                self.log.info(f"**`WARNING:`** _build_teams: No registered participant for {member.email}")
+            else:
+                # add member to team role
+                guild_member = ctx.guild.get_member(participant.discord_id)
+                team_role = ctx.guild.get_role(cur_team.team_role_id)
+                await guild_member.add_roles(team_role, reason="Team registration")
+
+        await ctx.respond(f"**`SUCCESS:`** _build_teams: Created {num_teams} teams.", ephemeral=True)
+        self.log.info(f"**`SUCCESS:`** _build_teams: {ctx.author.name} created {num_teams} teams.")
+
+    @commands.guild_only()
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @tb_group.command(name="createempty", description="🚫 [RESTRICTED] Add participant teams")
+    async def _create_empty_teams(self, ctx,
+                                  num: Option(int, "Number to create [Default: 1]", required=False, default=1)):
+
+        team_cats = self._filter_team_cats(ctx.guild)
 
         max_cur_team_num = 0
         if len(team_cats) > 0:
@@ -56,46 +149,13 @@ class TeamBuilder(commands.Cog):
         for n in range(1, 1 + num):
             next_team_num = max_cur_team_num + n
             team_name = f"Team {next_team_num}"
-            team_prefix = f"team-{next_team_num}"
-            perms = discord.Permissions.none()
-            new_team_role = await guild.create_role(name=team_name,
-                                                    permissions=perms)
-            roles = [(r.name, r) for r in guild.roles if r.name in ['Volunteer', 'DSA', 'Dataset Partner']]
-            roles_dict = dict(roles)
-
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                new_team_role: discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    send_messages_in_threads=True,
-                    create_public_threads=True,
-                    create_private_threads=False,
-                    read_messages=True,
-                    read_message_history=True,
-                    embed_links=True,
-                    attach_files=True,
-                    add_reactions=True,
-                    mention_everyone=True,
-                    connect=True,
-                    speak=True,
-                    stream=True,
-                    use_voice_activation=True,
-                ),
-                roles_dict['Volunteer']: discord.PermissionOverwrite(view_channel=True),
-                roles_dict['DSA']: discord.PermissionOverwrite(view_channel=True),
-                roles_dict['Dataset Partner']: discord.PermissionOverwrite(view_channel=True)
-            }
-
-            cat = await guild.create_category_channel(team_name, overwrites=overwrites)
-
-            await cat.create_text_channel(f"{team_prefix}-text")
-            await cat.create_voice_channel(f"{team_prefix}-voice")
+            # we make a new team, but don't do anything with it
+            _ = self._create_team(team_name, ctx.guild)
 
         await ctx.respond(f"**`SUCCESS:`** Created {num} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _create_teams: {ctx.author.name} created {num} teams.")
 
-    @_create.error
+    @_create_empty_teams.error
     async def _create_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             self.log.info(f"**`ERROR:`** _create_teams[{ctx.author.name}]: {error}")
@@ -108,13 +168,14 @@ class TeamBuilder(commands.Cog):
         guild = ctx.guild
 
         tnm = re.compile('^Team ([0-9]+)')
-        categories = dict([(int(tnm.match(c.name).group(1)), c) for c in guild.categories if tnm.match(c.name)])
+        categories = dict(
+            [(int(tnm.match(c.name).group(1)), c) for c in guild.categories if tnm.match(c.name) is not None])
         category_index = list(categories.keys())
         category_index.sort(reverse=True)
 
         self.log.info(f"Team category IDs: {category_index}")
 
-        team_roles = dict([(int(tnm.match(r.name).group(1)), r) for r in guild.roles if tnm.match(r.name)])
+        team_roles = dict([(int(tnm.match(r.name).group(1)), r) for r in guild.roles if tnm.match(r.name) is not None])
         self.log.info(f"Team role IDs: {team_roles}")
 
         cnt = 0
@@ -125,11 +186,13 @@ class TeamBuilder(commands.Cog):
 
         await ctx.respond(f"Deleting {len(cats_to_iter)} teams.", ephemeral=True)
 
+        session = Session()
+
         for n in cats_to_iter:
             cat = categories[n]
 
             for sub_channel in cat.channels:
-                self.log.info(f"Deleting category channel: {sub_channel.name}")
+                self.log.info(f"Deleting category sub-channel: {sub_channel.name}")
                 await sub_channel.delete()
 
             self.log.info(f"Deleting category: {cat.name}")
@@ -139,6 +202,10 @@ class TeamBuilder(commands.Cog):
             if role is not None:
                 self.log.info(f"Deleting role: {role.name}")
                 await role.delete()
+                session.query(Team).\
+                    filter(Team.team_role_id == role.id).\
+                    delete()
+                session.commit()
 
             cnt = cnt + 1
 
@@ -146,7 +213,7 @@ class TeamBuilder(commands.Cog):
         self.log.info(f"**`SUCCESS:`** _delete_teams: {ctx.author.name} deleted {cnt} teams.")
 
     @_delete.error
-    async def _delete_error(self, ctx, error):
+    async def _old_delete_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             self.log.info(f"**`ERROR:`** _delete_teams[{ctx.author.name}]: {error}")
 

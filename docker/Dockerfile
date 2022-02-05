@@ -50,8 +50,8 @@ COPY --from=builder-base $VENV_PATH $VENV_PATH
 WORKDIR /app
 
 # Copying in the entrypoint
-COPY ./docker/docker-entrypoint.sh docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+COPY ./docker/docker-entrypoint.sh /opt/docker/docker-entrypoint.sh
+RUN chmod +x /opt/docker/docker-entrypoint.sh
 
 # Make an empty data director for sqlite
 RUN mkdir data
@@ -59,6 +59,6 @@ RUN mkdir data
 COPY /src .
 COPY .env ./
 
-ENTRYPOINT ./docker-entrypoint.sh $0 $@
+ENTRYPOINT /opt/docker/docker-entrypoint.sh $0 $@
 CMD ["python", "bot.py"]
 # CMD ["sh", "while true; do sleep 1; echo '.'; done;"]

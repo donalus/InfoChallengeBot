@@ -11,7 +11,7 @@ python = "^3.8"
 python-dotenv = "^0.19.2"
 validate-email-address = "^1"
 SQLAlchemy = "^1.4.29"
-py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev = "eb981d3132e224cf3e22db98e7eb62cca5b8d243", extras = ["speed"]}
+py-cord = { git = "https://github.com/Pycord-Development/pycord.git", rev="4e8b396a", extras = ["speed"]}
 mariadb = "^1.0.9"
 
 [tool.poetry.group.docs.dependencies]

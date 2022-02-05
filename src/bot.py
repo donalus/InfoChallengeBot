@@ -1,11 +1,12 @@
+import os
 from pathlib import Path
+
 import discord
 from discord.ext import commands
-
-import os
 from dotenv import load_dotenv
-from models import init_db
+
 from common import logging
+from models import init_db
 
 load_dotenv()
 

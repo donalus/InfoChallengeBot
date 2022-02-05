@@ -21,7 +21,7 @@ UnsignedInt = Integer()
 UnsignedInt = UnsignedInt.with_variant(BIGINT(unsigned=True), 'mysql')
 UnsignedInt = UnsignedInt.with_variant(BIGINT(unsigned=True), 'mariadb')
 
-__all__ = ['Session', 'Registration', 'ConvoState', 'Participant', 'init_db']
+__all__ = ['Session', 'Registration', 'ConvoState', 'Participant', 'TeamRegistration', 'Team', 'init_db']
 
 
 # Make Database
@@ -50,3 +50,5 @@ def init_db():
 from models.registration import Registration
 from models.convostate import ConvoState
 from models.participant import Participant
+from models.teamregistration import TeamRegistration
+from models.team import Team

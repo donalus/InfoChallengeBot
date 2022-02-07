@@ -20,7 +20,7 @@ ENV PATH="${POETRY_HOME}/bin:$VENV_PATH/bin:$PATH"
 
 # These are required for the pycord[speed] extensions
 RUN apk update && apk upgrade && \
-    apk add cargo gcc g++ libffi-dev patchelf curl git
+    apk add --no-cache --virtual .build-deps cargo gcc g++ libffi-dev patchelf curl git
 
 ###############################################
 # Builder Image
@@ -28,7 +28,7 @@ RUN apk update && apk upgrade && \
 FROM python-base as builder-base
 
 # These are required for connecting to different databases with sqlalchemy
-RUN apk add mariadb-connector-c-dev
+RUN apk add --no-cache mariadb-connector-c-dev
 
 # Install all Python requirements (requires version 1.20.0a2 or better)
 RUN curl -sSL https://install.python-poetry.org | python3 - --preview
@@ -45,7 +45,10 @@ RUN poetry install --without dev,utils,docs
 ###############################################
 FROM builder-base as production
 
+# Copy over the built python libraries
 COPY --from=builder-base $VENV_PATH $VENV_PATH
+# Make the image smaller by removing build-deps
+RUN apk del .build-deps
 
 WORKDIR /app
 

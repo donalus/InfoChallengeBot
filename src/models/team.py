@@ -12,5 +12,5 @@ class Team(Base):
     team_role_id = Column(UnsignedInt, nullable=False)
 
     def __repr__(self):
-        return f"<Team(team_id={self.team_id},team_name={self.team_name},team_role_id={self.team_role_id}"\
+        return f"<Team(team_id={self.id},team_name={self.team_name},team_role_id={self.team_role_id}"\
                f",guild_id={self.guild_id})>"

@@ -7,7 +7,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from common import checks, logging
-from models import Participant, Session, Team, TeamRegistration
+from models import Participant, Session, Team, TeamRegistration, TeamParticipant
 
 load_dotenv()
 
@@ -90,7 +90,7 @@ class TeamBuilder(commands.Cog):
 
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @tb_group.command(name="buildteams", description="🚫 [RESTRICTED] Build teams from registered teams")
+    @tb_group.command(name="buildteams", description="🚫 [RESTRICTED] Build teams from team registrations")
     async def _build_teams(self, ctx):
         session = Session()
         num_teams = session.query(TeamRegistration). \
@@ -101,31 +101,45 @@ class TeamBuilder(commands.Cog):
         await ctx.respond(f"**`START:`** _build_teams: Building {num_teams} Teams", ephemeral=True)
         self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {num_teams} teams.")
 
-        team_members = session.query(TeamRegistration). \
-            filter(TeamRegistration.guild_id == ctx.guild.id). \
+        team_reg_participants = session.query(TeamRegistration, Participant). \
+            filter(TeamRegistration.guild_id == ctx.guild.id,
+                   TeamRegistration.email == Participant.email,
+                   TeamRegistration.guild_id == Participant.guild_id). \
             order_by(TeamRegistration.team_name). \
             all()
 
         # Empty Team to start because None doesn't work
         cur_team = None
-        for member in team_members:
+        for team_registration, participant in team_reg_participants:
             # if a new team, make one and set it to cur_team
-            if cur_team is None or cur_team.team_name != member.team_name:
-                await ctx.respond(f"Creating Team: {member.team_name}", ephemeral=True)
-                team = await self._create_team(session, member.team_name, ctx.guild)
+            if cur_team is None or cur_team.team_name != team_registration.team_name:
+                team = session.query(Team). \
+                    filter(Team.team_name == team_registration.team_name,
+                           Team.guild_id == ctx.guild.id). \
+                    one_or_none()
+                if team is None:
+                    await ctx.respond(f"Creating Team: {team_registration.team_name}", ephemeral=True)
+                    team = await self._create_team(session, team_registration.team_name, ctx.guild)
                 cur_team = team
 
-            participant = session.query(Participant). \
-                filter(Participant.email == member.email,
-                       Participant.guild_id == ctx.guild.id). \
+            # Check if participant is in a team. If in team, then skip.
+            team_participant = session.query(TeamParticipant). \
+                filter(TeamParticipant.team_id == cur_team.id,
+                       TeamParticipant.participant_id == participant.id,
+                       TeamParticipant.guild_id == ctx.guild.id). \
                 one_or_none()
-            if participant is None:
-                await ctx.respond(f"**`WARNING:`** _build_teams: No registered participant for {member.email}",
-                                  ephemeral=True)
-                self.log.info(f"**`WARNING:`** _build_teams: No registered participant for {member.email}")
-            else:
-                # add member to team role
-                guild_member = ctx.guild.get_member(participant.discord_id)
+            if team_participant is None:
+                # Update database to show that the participant is in a team.
+                team_participant = TeamParticipant(
+                    team_id=cur_team.id,
+                    participant_id=participant.id,
+                    guild_id=ctx.guild.id
+                )
+                session.add(team_participant)
+                session.commit()
+            # add member to team role if they don't have it yet
+            guild_member = ctx.guild.get_member(participant.discord_id)
+            if guild_member.get_role(cur_team.team_role_id) is None:
                 team_role = ctx.guild.get_role(cur_team.team_role_id)
                 await guild_member.add_roles(team_role, reason="Team registration")
 
@@ -150,7 +164,7 @@ class TeamBuilder(commands.Cog):
             next_team_num = max_cur_team_num + n
             team_name = f"Team {next_team_num}"
             # we make a new team, but don't do anything with it
-            _ = self._create_team(team_name, ctx.guild)
+            _ = self._create_team(Session(), team_name, ctx.guild)
 
         await ctx.respond(f"**`SUCCESS:`** Created {num} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _create_teams: {ctx.author.name} created {num} teams.")
@@ -202,10 +216,15 @@ class TeamBuilder(commands.Cog):
             if role is not None:
                 self.log.info(f"Deleting role: {role.name}")
                 await role.delete()
-                session.query(Team).\
-                    filter(Team.team_role_id == role.id).\
-                    delete()
-                session.commit()
+                team = session.query(Team). \
+                    filter(Team.team_role_id == role.id). \
+                    one_or_none()
+                if team is not None:
+                    session.query(TeamParticipant). \
+                        filter(TeamParticipant.team_id == team.id). \
+                        delete()
+                    session.delete(team)
+                    session.commit()
 
             cnt = cnt + 1
 

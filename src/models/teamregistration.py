@@ -11,5 +11,5 @@ class TeamRegistration(Base):
     team_name = Column(String(255), nullable=False)
 
     def __repr__(self):
-        return f"<TeamRegistration(id={self.id}, discord_id={self.discord_id}, " \
-               f"email={self.email}, institution={self.institution}, role={self.role})>"
+        return f"<TeamRegistration(id={self.id}, guild_id={self.guild_id}, " \
+               f"email={self.email}, team_name={self.team_name})>"

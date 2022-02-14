@@ -22,6 +22,12 @@ IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
 
 
+def _filter_team_cats(guild):
+    tnm = re.compile('^Team ([0-9]+)')
+    team_cats = [int(tnm.match(c.name).group(1)) for c in guild.categories if tnm.match(c.name) is not None]
+    return team_cats
+
+
 class TeamBuilder(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -38,11 +44,6 @@ class TeamBuilder(commands.Cog):
             ),  # Always allow owner
         ]
     )
-
-    def _filter_team_cats(self, guild):
-        tnm = re.compile('^Team ([0-9]+)')
-        team_cats = [int(tnm.match(c.name).group(1)) for c in guild.categories if tnm.match(c.name) is not None]
-        return team_cats
 
     async def _create_team(self, session, team_name, guild: discord.Guild):
         perms = discord.Permissions.none()
@@ -86,93 +87,72 @@ class TeamBuilder(commands.Cog):
         chan_prefix = team_name.strip().replace(' ', '-').lower()
         await cat.create_text_channel(f"{chan_prefix}-text")
         await cat.create_voice_channel(f"{chan_prefix}-voice")
+        self.log.info(f"Created team {team_name}")
         return team
 
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @tb_group.command(name="buildteams", description="🚫 [RESTRICTED] Build teams from team registrations")
+    @tb_group.command(name="build", description="🚫 [RESTRICTED] Build teams from team registrations")
     async def _build_teams(self, ctx):
-        session = Session()
-        num_teams = session.query(TeamRegistration). \
-            filter(TeamRegistration.guild_id == ctx.guild.id). \
-            group_by(TeamRegistration.team_name). \
-            count()
+        with Session() as session:
+            num_teams = session.query(TeamRegistration). \
+                filter(TeamRegistration.guild_id == ctx.guild.id). \
+                group_by(TeamRegistration.team_name). \
+                count()
 
-        await ctx.respond(f"**`START:`** _build_teams: Building {num_teams} Teams", ephemeral=True)
-        self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {num_teams} teams.")
+            await ctx.respond(f"**`START:`** _build_teams: Building {num_teams} Teams", ephemeral=True)
+            self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {num_teams} teams.")
 
-        team_reg_participants = session.query(TeamRegistration, Participant). \
-            filter(TeamRegistration.guild_id == ctx.guild.id,
-                   TeamRegistration.email == Participant.email,
-                   TeamRegistration.guild_id == Participant.guild_id). \
-            order_by(TeamRegistration.team_name). \
-            all()
+            team_reg_participants = session.query(TeamRegistration, Participant). \
+                filter(TeamRegistration.guild_id == ctx.guild.id,
+                       TeamRegistration.email == Participant.email,
+                       TeamRegistration.guild_id == Participant.guild_id). \
+                order_by(TeamRegistration.team_name). \
+                all()
 
-        # Empty Team to start because None doesn't work
-        cur_team = None
-        for team_registration, participant in team_reg_participants:
-            # if a new team, make one and set it to cur_team
-            if cur_team is None or cur_team.team_name != team_registration.team_name:
-                team = session.query(Team). \
-                    filter(Team.team_name == team_registration.team_name,
-                           Team.guild_id == ctx.guild.id). \
+            # Empty Team to start because None doesn't work
+            cur_team = None
+            for team_registration, participant in team_reg_participants:
+                # if a new team, make one and set it to cur_team
+                if cur_team is None or cur_team.team_name != team_registration.team_name:
+                    team = session.query(Team). \
+                        filter(Team.team_name == team_registration.team_name,
+                               Team.guild_id == ctx.guild.id). \
+                        one_or_none()
+                    if team is None:
+                        await ctx.respond(f"Creating Team: {team_registration.team_name}", ephemeral=True)
+                        team = await self._create_team(session, team_registration.team_name, ctx.guild)
+                    cur_team = team
+
+                # Check if participant is in a team. If in team, then skip.
+                team_participant = session.query(TeamParticipant). \
+                    filter(TeamParticipant.team_id == cur_team.id,
+                           TeamParticipant.participant_id == participant.id,
+                           TeamParticipant.guild_id == ctx.guild.id). \
                     one_or_none()
-                if team is None:
-                    await ctx.respond(f"Creating Team: {team_registration.team_name}", ephemeral=True)
-                    team = await self._create_team(session, team_registration.team_name, ctx.guild)
-                cur_team = team
-
-            # Check if participant is in a team. If in team, then skip.
-            team_participant = session.query(TeamParticipant). \
-                filter(TeamParticipant.team_id == cur_team.id,
-                       TeamParticipant.participant_id == participant.id,
-                       TeamParticipant.guild_id == ctx.guild.id). \
-                one_or_none()
-            if team_participant is None:
-                # Update database to show that the participant is in a team.
-                team_participant = TeamParticipant(
-                    team_id=cur_team.id,
-                    participant_id=participant.id,
-                    guild_id=ctx.guild.id
-                )
-                session.add(team_participant)
-                session.commit()
-            # add member to team role if they don't have it yet
-            guild_member = ctx.guild.get_member(participant.discord_id)
-            if guild_member.get_role(cur_team.team_role_id) is None:
-                team_role = ctx.guild.get_role(cur_team.team_role_id)
-                await guild_member.add_roles(team_role, reason="Team registration")
+                if team_participant is None:
+                    # Update database to show that the participant is in a team.
+                    team_participant = TeamParticipant(
+                        team_id=cur_team.id,
+                        participant_id=participant.id,
+                        guild_id=ctx.guild.id
+                    )
+                    session.add(team_participant)
+                    session.commit()
+                # add member to team role if they don't have it yet
+                guild_member = ctx.guild.get_member(participant.discord_id)
+                if guild_member.get_role(cur_team.team_role_id) is None:
+                    team_role = ctx.guild.get_role(cur_team.team_role_id)
+                    await guild_member.add_roles(team_role, reason="Team registration")
 
         await ctx.respond(f"**`SUCCESS:`** _build_teams: Created {num_teams} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _build_teams: {ctx.author.name} created {num_teams} teams.")
 
-    @commands.guild_only()
-    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @tb_group.command(name="createempty", description="🚫 [RESTRICTED] Add participant teams")
-    async def _create_empty_teams(self, ctx,
-                                  num: Option(int, "Number to create [Default: 1]", required=False, default=1)):
-
-        team_cats = self._filter_team_cats(ctx.guild)
-
-        max_cur_team_num = 0
-        if len(team_cats) > 0:
-            max_cur_team_num = max(team_cats)
-
-        await ctx.respond(f"Adding {num} teams.", ephemeral=True)
-
-        for n in range(1, 1 + num):
-            next_team_num = max_cur_team_num + n
-            team_name = f"Team {next_team_num}"
-            # we make a new team, but don't do anything with it
-            _ = self._create_team(Session(), team_name, ctx.guild)
-
-        await ctx.respond(f"**`SUCCESS:`** Created {num} teams.", ephemeral=True)
-        self.log.info(f"**`SUCCESS:`** _create_teams: {ctx.author.name} created {num} teams.")
-
-    @_create_empty_teams.error
-    async def _create_error(self, ctx, error):
+    @_build_teams.error
+    async def _build_teams_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
-            self.log.info(f"**`ERROR:`** _create_teams[{ctx.author.name}]: {error}")
+            await ctx.respond(f"**`ERROR:`** _build_teams[{ctx.author.name}]: {error}")
+            self.log.info(f"**`ERROR:`** _build_teams[{ctx.author.name}]: {error}")
 
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
@@ -200,33 +180,32 @@ class TeamBuilder(commands.Cog):
 
         await ctx.respond(f"Deleting {len(cats_to_iter)} teams.", ephemeral=True)
 
-        session = Session()
+        with Session() as session:
+            for n in cats_to_iter:
+                cat = categories[n]
 
-        for n in cats_to_iter:
-            cat = categories[n]
+                for sub_channel in cat.channels:
+                    self.log.info(f"Deleting category sub-channel: {sub_channel.name}")
+                    await sub_channel.delete()
 
-            for sub_channel in cat.channels:
-                self.log.info(f"Deleting category sub-channel: {sub_channel.name}")
-                await sub_channel.delete()
+                self.log.info(f"Deleting category: {cat.name}")
+                await cat.delete()
 
-            self.log.info(f"Deleting category: {cat.name}")
-            await cat.delete()
+                role = team_roles.get(n)
+                if role is not None:
+                    self.log.info(f"Deleting role: {role.name}")
+                    await role.delete()
+                    team = session.query(Team). \
+                        filter(Team.team_role_id == role.id). \
+                        one_or_none()
+                    if team is not None:
+                        session.query(TeamParticipant). \
+                            filter(TeamParticipant.team_id == team.id). \
+                            delete()
+                        session.delete(team)
+                        session.commit()
 
-            role = team_roles.get(n)
-            if role is not None:
-                self.log.info(f"Deleting role: {role.name}")
-                await role.delete()
-                team = session.query(Team). \
-                    filter(Team.team_role_id == role.id). \
-                    one_or_none()
-                if team is not None:
-                    session.query(TeamParticipant). \
-                        filter(TeamParticipant.team_id == team.id). \
-                        delete()
-                    session.delete(team)
-                    session.commit()
-
-            cnt = cnt + 1
+                cnt = cnt + 1
 
         await ctx.respond(f"**`SUCCESS:`** Deleted {cnt} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _delete_teams: {ctx.author.name} deleted {cnt} teams.")

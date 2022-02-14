@@ -12,7 +12,12 @@ load_dotenv()
 IS_PROD = os.environ['is_production'] == 'True'
 DB_CONN_URI = os.environ['db_conn_uri']
 
-engine = create_engine(DB_CONN_URI)
+engine = create_engine(DB_CONN_URI,
+                       pool_size=50,
+                       max_overflow=10,
+                       pool_recycle=3600,
+                       pool_pre_ping=True,
+                       pool_use_lifo=True)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -42,7 +47,8 @@ def init_db():
     if not IS_PROD:
         log.info(f"[init_db: Add]")
         from .registration import create_test_data
-        create_test_data(Session())
+        with Session() as session:
+            create_test_data(session)
 
     log.info(f"[init_db: End]")
 

@@ -27,12 +27,14 @@ LOGGING_STR = os.getenv('logging_str')
 
 async def sync_server_roles(guild: discord.Guild, member: discord.Member, participant=None):
     # Add Discord Roles.
-    roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles])
+    roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles if not r.name.lower().startswith('team ')])
+
     with Session() as session:
         # Ugh, not all places have a Participant obj
-        if participant is not None:
+        if participant is None:
             participant = session.query(Participant).filter(Participant.guild_id == guild.id,
                                                             Participant.discord_id == member.id).one_or_none()
+
         # Don't blow up if there isn't a participant...
         if participant is not None:
             if participant.role.lower() == 'participant':
@@ -335,15 +337,14 @@ class Registrator(commands.Cog):
                 reg_fsm = RegistratorConvoFSM(self.log, guild, member)
                 msg, view = reg_fsm.exec(message=message.content)
 
-                if reg_fsm.state.state == 'registered':
-                    await sync_server_roles(guild, member)
+                # not the most efficient, but whatever
+                await sync_server_roles(guild, member)
 
                 # Pycord does not like it if there is a view argument that is set to none...
                 if view is not None:
                     await message.reply(msg, view=view)
                 else:
                     await message.reply(msg)
-
             else:
                 await message.reply(
                     f"I'm sorry. We don't share any servers, so I don't know how to help you."

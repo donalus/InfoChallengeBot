@@ -37,6 +37,29 @@ class Manager(commands.Cog):
     )
 
     @commands.guild_only()
+    @manager_group.command(name='user_info', description="🚫 [RESTRICTED] Debug information.")
+    async def _user_info(self, ctx,
+                         member: Option(discord.Member,
+                                        "Optional: The user to display info on.",
+                                        required=False,
+                                        default=None)):
+
+        response = f"User Info:\n" \
+                   f"\tMember Name: {member.name}\n" \
+                   f"\tMember Nick: {member.nick}\n" \
+                   f"\tCreated At: {member.created_at}\n" \
+                   f"\tJoined At: {member.joined_at}\n" \
+                   f"\tMember ID: {member.id}\n" \
+                   f"\tNumber of Roles: {len(member.roles)}\n" \
+                   f"\tTop Role: {member.top_role.name}"
+        self.log.info(response)
+        await ctx.respond(response, ephemeral=True)
+
+    @_user_info.error
+    async def _user_info_error(self, ctx, error):
+        self.log.info(f"**`ERROR:`** Test[{ctx.author.name}]: {type(error).__name__} - {error}")
+
+    @commands.guild_only()
     @manager_group.command(name='debug', description="🚫 [RESTRICTED] Debug information.")
     async def _debug(self, ctx):
         is_owner = await self.bot.is_owner(ctx.author)

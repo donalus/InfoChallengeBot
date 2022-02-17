@@ -47,6 +47,7 @@ class TeamBuilder(commands.Cog):
 
     async def _create_team(self, session, team_name, guild: discord.Guild):
         perms = discord.Permissions.none()
+
         team_role = await guild.create_role(name=team_name,
                                             permissions=perms)
         team = Team(team_name=team_name,
@@ -110,30 +111,28 @@ class TeamBuilder(commands.Cog):
                 order_by(TeamRegistration.team_name). \
                 all()
 
-            # Empty Team to start because None doesn't work
-            cur_team = None
             for team_registration, participant in team_reg_participants:
-                # if a new team, make one and set it to cur_team
-                if cur_team is None or cur_team.team_name != team_registration.team_name:
-                    team = session.query(Team). \
-                        filter(Team.team_name == team_registration.team_name,
-                               Team.guild_id == ctx.guild.id). \
-                        one_or_none()
-                    if team is None:
-                        await ctx.respond(f"Creating Team: {team_registration.team_name}", ephemeral=True)
-                        team = await self._create_team(session, team_registration.team_name, ctx.guild)
-                    cur_team = team
+                if not team_registration.team_name.startswith('Team '):
+                    team_name = f"Team {team_registration.team_name}"
+                # if a new team, then make one
+                team = session.query(Team). \
+                    filter(Team.team_name == team_name,
+                           Team.guild_id == ctx.guild.id). \
+                    one_or_none()
+                if team is None:
+                    await ctx.respond(f"Creating Team: {team_name}", ephemeral=True)
+                    team = await self._create_team(session, team_name, ctx.guild)
 
                 # Check if participant is in a team. If in team, then skip.
                 team_participant = session.query(TeamParticipant). \
-                    filter(TeamParticipant.team_id == cur_team.id,
+                    filter(TeamParticipant.team_id == team.id,
                            TeamParticipant.participant_id == participant.id,
                            TeamParticipant.guild_id == ctx.guild.id). \
                     one_or_none()
-                if team_participant is None:
+                if team_participant is None or participant.role.lower() == 'mentor':
                     # Update database to show that the participant is in a team.
                     team_participant = TeamParticipant(
-                        team_id=cur_team.id,
+                        team_id=team.id,
                         participant_id=participant.id,
                         guild_id=ctx.guild.id
                     )
@@ -141,8 +140,8 @@ class TeamBuilder(commands.Cog):
                     session.commit()
                 # add member to team role if they don't have it yet
                 guild_member = ctx.guild.get_member(participant.discord_id)
-                if guild_member.get_role(cur_team.team_role_id) is None:
-                    team_role = ctx.guild.get_role(cur_team.team_role_id)
+                if guild_member.get_role(team.team_role_id) is None:
+                    team_role = ctx.guild.get_role(team.team_role_id)
                     await guild_member.add_roles(team_role, reason="Team registration")
 
         await ctx.respond(f"**`SUCCESS:`** _build_teams: Created {num_teams} teams.", ephemeral=True)
@@ -157,11 +156,11 @@ class TeamBuilder(commands.Cog):
     @commands.guild_only()
     @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
     @tb_group.command(name="delete", description="🚫 [RESTRICTED] Delete participant teams")
-    async def _delete(self, ctx, num: Option(int, "Number to delete [Default: 1]", required=False, default=1)):
-        self.log.info(f"{ctx.author.name} called '/teams delete num:{num}'")
+    async def _delete(self, ctx):
+        self.log.info(f"{ctx.author.name} called '/teams delete'")
         guild = ctx.guild
 
-        tnm = re.compile('^Team ([0-9]+)')
+        tnm = re.compile('^Team IC([0-9]{5})', re.I)
         categories = dict(
             [(int(tnm.match(c.name).group(1)), c) for c in guild.categories if tnm.match(c.name) is not None])
         category_index = list(categories.keys())
@@ -172,16 +171,10 @@ class TeamBuilder(commands.Cog):
         team_roles = dict([(int(tnm.match(r.name).group(1)), r) for r in guild.roles if tnm.match(r.name) is not None])
         self.log.info(f"Team role IDs: {team_roles}")
 
+        await ctx.respond(f"Deleting {len(category_index)} teams.", ephemeral=True)
         cnt = 0
-        if num >= len(category_index):
-            cats_to_iter = category_index
-        else:
-            cats_to_iter = category_index[:num]
-
-        await ctx.respond(f"Deleting {len(cats_to_iter)} teams.", ephemeral=True)
-
         with Session() as session:
-            for n in cats_to_iter:
+            for n in category_index:
                 cat = categories[n]
 
                 for sub_channel in cat.channels:

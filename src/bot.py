@@ -18,11 +18,11 @@ DATA_DIR = os.getenv('data_dir')
 LOGGING_STR = os.getenv('logging_str')
 BOT_KEY = os.getenv('bot_prefix')
 BOT_TOKEN = os.getenv('bot_token')
+GUILD_OWNER_ID = int(os.getenv('guild_owner_id'))
 
 EVENT_BOT_ROLES = ['Planning Team']
 current_dir = Path('..')
 data_path = current_dir / DATA_DIR
-
 
 # Extensions (cogs) to load
 extensions = ["manager", "registrator", "teambuilder"]
@@ -49,7 +49,10 @@ async def on_ready():
     )
     log.info(f"Bot is ready for {EVENT_NAME}!")
     for guild in bot.guilds:
-        log.info(f"Bot is connected to {guild.id}")
+        log.info(f"Bot is connected to {guild.id} - {guild.name} - {guild.owner.name}")
+    
+        await guild.owner.send(f"I am awake! "
+                               f"(https://github.com/UMD-InformationChallenge/InfoChallengeBot)")
 
 
 if __name__ == '__main__':

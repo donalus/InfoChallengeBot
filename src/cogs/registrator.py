@@ -25,6 +25,28 @@ IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
 
 
+async def sync_server_roles(guild: discord.Guild, member: discord.Member, participant=None):
+    # Add Discord Roles.
+    roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles])
+    with Session() as session:
+        # Ugh, not all places have a Participant obj
+        if participant is not None:
+            participant = session.query(Participant).filter(Participant.guild_id == guild.id,
+                                                            Participant.discord_id == member.id).one_or_none()
+        # Don't blow up if there isn't a participant...
+        if participant is not None:
+            if participant.role.lower() == 'participant':
+                participant_role = guild.get_role(roles['participant'])
+                institution_role = guild.get_role(roles[participant.institution.lower()])
+
+                await member.add_roles(institution_role,
+                                       participant_role,
+                                       reason='InfoChallengeConcierge added roles')
+            else:
+                role = guild.get_role(roles[participant.role.lower()])
+                await member.add_roles(role, reason='InfoChallengeConcierge added roles')
+
+
 class Confirm(View):
     def __init__(self, convo):
         super().__init__()
@@ -33,10 +55,6 @@ class Confirm(View):
     @discord.ui.button(label="Yes", emoji="✔", style=ButtonStyle.green)
     async def yes(self, button: Button, interaction: discord.Interaction):
         msg, view = self.convo.exec(message="yes")
-
-        # Yes, this is a gross place for this to be...
-        if self.convo.state.state == 'registered':
-            await self.convo.sync_server_roles()
 
         # Apparently pycord doesn't like view to be present and none...
         if view is not None:
@@ -137,10 +155,10 @@ class RegistratorConvoFSM:
             session.commit()
 
     def _initiate(self, **kwargs):
-        self.log.info(f"fsm._initiate: {kwargs}")
+        self.log.info(f"fsm._initiate: {kwargs} | id: {self.member.id}")
         self.next_state()
-        response = f"Hello {self.member.name}, it looks like you need to complete your registration " \
-                   f"for {self.guild.name}.\nPlease reply with your email address."
+        response = f"Hello {self.member.name}, let me help connect your registration to this Discord server.\n" \
+                   f"What is the email address you used to register for {EVENT_NAME}?"
         return response, None
 
     def _email(self, **kwargs):
@@ -185,8 +203,8 @@ class RegistratorConvoFSM:
                             response, view = self.exec(**kwargs)
             else:
                 self.log.info(f"fsm._email: invalid email {email}")
-                response = f"Hello {self.member.name}, that is not a valid email address.\n" \
-                           f"Please reply with only the email address you used to register for {EVENT_NAME}."
+                response = f"Hello, {self.member.name}.\n" \
+                           f"What is the email address you used to register for {EVENT_NAME}?"
         return response, view
 
     def _unrecognized(self, **kwargs):
@@ -270,28 +288,6 @@ class RegistratorConvoFSM:
         response = f"{self.member.name}, please email {EVENT_CONTACT_EMAIL} for support."
         return response, None
 
-    async def sync_server_roles(self):
-        # Add Discord Roles.
-        with Session() as session:
-            participant = session.query(Participant). \
-                filter(Participant.guild_id == self.guild.id,
-                       Participant.discord_id == self.member.id).one_or_none()
-            roles = dict([(r.name.lower(), int(r.id)) for r in self.guild.roles])
-            if participant.role.lower() == 'participant':
-                participant_role = self.guild.get_role(roles['participant'])
-                institution_role = self.guild.get_role(roles[participant.institution.lower()])
-                self.log.info(f"fsm.sync_server_roles: Participant\n"
-                              f"\t{[participant_role, institution_role]}")
-
-                await self.member.add_roles(institution_role,
-                                            participant_role,
-                                            reason='InfoChallengeConcierge added roles')
-            else:
-                self.log.info(f"fsm.sync_server_roles: {participant.role}\n"
-                              f"\troles: {roles[participant.role.lower()]}")
-                role = self.guild.get_role(roles[participant.role.lower()])
-                await self.member.add_roles(role, reason='InfoChallengeConcierge added roles')
-
 
 class Registrator(commands.Cog):
     def __init__(self, bot):
@@ -318,9 +314,10 @@ class Registrator(commands.Cog):
         if member.bot is True:
             return
 
-        reg_fsm = RegistratorConvoFSM(self.log, member.guild, member)
-        msg, view = reg_fsm.exec()
-        await member.send(msg)
+        if member.guild.id == EVENT_GUILD_ID:
+            reg_fsm = RegistratorConvoFSM(self.log, member.guild, member)
+            msg, view = reg_fsm.exec()
+            await member.send(msg)
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -328,6 +325,7 @@ class Registrator(commands.Cog):
             return
         if message.content.startswith(self.bot.command_prefix):
             return
+        # Only respond to direct messages (messages without a guild)
         if not message.guild:
             shared_guild_ids = [g.id for g in message.author.mutual_guilds]
 
@@ -335,8 +333,12 @@ class Registrator(commands.Cog):
                 guild = [g for g in message.author.mutual_guilds if g.id == EVENT_GUILD_ID].pop()
                 member = guild.get_member(message.author.id)
                 reg_fsm = RegistratorConvoFSM(self.log, guild, member)
-
                 msg, view = reg_fsm.exec(message=message.content)
+
+                if reg_fsm.state.state == 'registered':
+                    await sync_server_roles(guild, member)
+
+                # Pycord does not like it if there is a view argument that is set to none...
                 if view is not None:
                     await message.reply(msg, view=view)
                 else:
@@ -379,7 +381,8 @@ class Registrator(commands.Cog):
                                               reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
                 else:
                     role = guild.get_role(roles[participant.role.lower()])
-                    await member.remove_roles(role, reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
+                    await member.remove_roles(role,
+                                              reason=f"InfoChallengeConcierge: {ctx.author.name} reset user roles")
 
                 session.delete(participant)
                 session.commit()
@@ -397,6 +400,71 @@ class Registrator(commands.Cog):
             await ctx.send(f"**`ERROR:`** Could not find user", ephemeral=True)
         if isinstance(error, commands.CheckFailure):
             self.log.info(f"**`ERROR:`** _reset_user_error[{ctx.author.name}]: {error}")
+
+    @commands.guild_only()
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @registrator_group.command(name="connect_account", description="🚫 [RESTRICTED] Register a user.")
+    async def _add_participant(self, ctx,
+                               member: Option(discord.Member,
+                                              "Required: User to reset",
+                                              required=True),
+                               email: Option(str, "Required: The user's email address.", required=True)):
+
+        self.log.info(f"Connecting registration for participant [{member.display_name}]")
+        guild = ctx.guild
+        with Session() as session:
+            registration = session.query(Registration). \
+                filter(Registration.guild_id == guild.id,
+                       Registration.email == email).one_or_none()
+
+            session.commit()
+            if registration is not None:
+                participant = Participant(discord_id=member.id,
+                                          guild_id=guild.id,
+                                          email=registration.email,
+                                          institution=registration.institution,
+                                          role=registration.role)
+                session.add(participant)
+
+                session.query(ConvoState).filter(ConvoState.discord_id == member.id,
+                                                 ConvoState.guild_id == guild.id).delete()
+                session.add(ConvoState(discord_id=member.id,
+                                       guild_id=guild.id,
+                                       conversation='registration',
+                                       state='registered'))
+                session.commit()
+                session.refresh(participant)
+                await sync_server_roles(guild, member, participant)
+
+                await ctx.respond(f"**`SUCCESS:`** Connected registration for user [{member.display_name}]",
+                                  ephemeral=True)
+            else:
+                await ctx.respond(f"**`ERROR:`** User [{member.display_name}] was not registered.", ephemeral=True)
+
+    @_add_participant.error
+    async def _add_participant_error(self, ctx, error):
+        if isinstance(error, commands.MemberNotFound):
+            self.log.info(f"**`ERROR:`** _add_participant_error[{ctx.author.name}]: {error}")
+            await ctx.send(f"**`ERROR:`** Could not find user", ephemeral=True)
+        if isinstance(error, commands.CheckFailure):
+            self.log.info(f"**`ERROR:`** _add_participant_error[{ctx.author.name}]: {error}")
+
+    @commands.guild_only()
+    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
+    @registrator_group.command(name="list_unlinked",
+                               description="🚫 [RESTRICTED] Identify accounts that are no linked.")
+    async def _list_unlinked(self, ctx):
+        self.log.info(f"")
+
+        unlinked = [m.nick for m in ctx.guild.members if m.top_role.name == 'everyone']
+        unlinked_str = '\n'.join(unlinked)
+        await ctx.respond(f"There are {len(unlinked)} unlinked accounts.\n List of accounts: \n{unlinked_str}",
+                          ephemeral=True)
+
+    @_list_unlinked.error
+    async def _list_unlinked_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            self.log.info(f"**`ERROR:`** _list_unlinked_error[{ctx.author.name}]: {error}")
 
 
 def setup(bot):

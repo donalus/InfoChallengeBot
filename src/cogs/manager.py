@@ -1,8 +1,8 @@
 import os
 
 import discord as discord
-from discord.ext import commands
 from discord.commands import permissions, Option, SlashCommandGroup, CommandPermission
+from discord.ext import commands
 from dotenv import load_dotenv
 
 from common import logging, checks
@@ -42,17 +42,22 @@ class Manager(commands.Cog):
                          member: Option(discord.Member,
                                         "Optional: The user to display info on.",
                                         required=False,
-                                        default=None)):
-
-        response = f"User Info:\n" \
-                   f"\tMember Name: {member.name}\n" \
-                   f"\tMember Nick: {member.nick}\n" \
-                   f"\tCreated At: {member.created_at}\n" \
-                   f"\tJoined At: {member.joined_at}\n" \
-                   f"\tMember ID: {member.id}\n" \
-                   f"\tNumber of Roles: {len(member.roles)}\n" \
-                   f"\tTop Role: {member.top_role.name}"
-        self.log.info(response)
+                                        default=None),
+                         discord_id: Option(str,
+                                            required=False,
+                                            default=None)):
+        response = f"No member or discord_id sent"
+        if discord_id is not None and discord_id.isnumeric():
+            member = ctx.guild.get_member(int(discord_id))
+        if member is not None:
+            response = f"User Info:\n" \
+                       f"\tMember Name: {member.name}\n" \
+                       f"\tMember Nick: {member.nick}\n" \
+                       f"\tCreated At: {member.created_at}\n" \
+                       f"\tJoined At: {member.joined_at}\n" \
+                       f"\tMember ID: {member.id}\n" \
+                       f"\tNumber of Roles: {len(member.roles)}\n" \
+                       f"\tTop Role: {member.top_role.name}"
         await ctx.respond(response, ephemeral=True)
 
     @_user_info.error

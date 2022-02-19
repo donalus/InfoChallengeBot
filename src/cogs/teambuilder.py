@@ -2,7 +2,7 @@ import os
 import re
 
 import discord as discord
-from discord.commands import CommandPermission, Option, SlashCommandGroup
+from discord.commands import CommandPermission, SlashCommandGroup
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -111,6 +111,7 @@ class TeamBuilder(commands.Cog):
                 order_by(TeamRegistration.team_name). \
                 all()
 
+            cur_team = ''
             for team_registration, participant in team_reg_participants:
                 if not team_registration.team_name.startswith('Team '):
                     team_name = f"Team {team_registration.team_name}"
@@ -120,8 +121,13 @@ class TeamBuilder(commands.Cog):
                            Team.guild_id == ctx.guild.id). \
                     one_or_none()
                 if team is None:
-                    await ctx.respond(f"Creating Team: {team_name}", ephemeral=True)
+                    await ctx.respond(f"_build_teams: Creating Team: {team_name}", ephemeral=True)
                     team = await self._create_team(session, team_name, ctx.guild)
+
+                if cur_team != team.team_name:
+                    self.log.info(f"_build_teams: Adding members to {team.team_name}")
+                    await ctx.respond(f"_build_teams: Adding members to {team.team_name}")
+                    cur_team = team.team_name
 
                 # Check if participant is in a team. If in team, then skip.
                 team_participant = session.query(TeamParticipant). \
@@ -130,6 +136,7 @@ class TeamBuilder(commands.Cog):
                            TeamParticipant.guild_id == ctx.guild.id). \
                     one_or_none()
                 if team_participant is None or participant.role.lower() == 'mentor':
+                    await ctx.respond(f"_build_teams: Adding {participant.discord_d} to {team.team_name}", ephemeral=True)
                     # Update database to show that the participant is in a team.
                     team_participant = TeamParticipant(
                         team_id=team.id,
@@ -138,9 +145,9 @@ class TeamBuilder(commands.Cog):
                     )
                     session.add(team_participant)
                     session.commit()
-                # add member to team role if they don't have it yet
+                # add member to team role
                 guild_member = ctx.guild.get_member(participant.discord_id)
-                if guild_member.get_role(team.team_role_id) is None:
+                if guild_member is not None:
                     team_role = ctx.guild.get_role(team.team_role_id)
                     await guild_member.add_roles(team_role, reason="Team registration")
 

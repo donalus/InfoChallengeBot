@@ -6,6 +6,8 @@ from discord import ButtonStyle
 from discord.commands import Option, SlashCommandGroup, CommandPermission
 
 from validate_email_address import validate_email
+
+import models
 from models import Session, Registration, ConvoState, Participant
 
 from common import logging, checks
@@ -25,28 +27,20 @@ IS_PRODUCTION = os.getenv('is_production')
 LOGGING_STR = os.getenv('logging_str')
 
 
-async def sync_server_roles(guild: discord.Guild, member: discord.Member, participant=None):
+async def sync_server_roles(guild: discord.Guild, member: discord.Member, participant: models.Participant):
     # Add Discord Roles.
     roles = dict([(r.name.lower(), int(r.id)) for r in guild.roles if not r.name.lower().startswith('team ')])
 
-    with Session() as session:
-        # Ugh, not all places have a Participant obj
-        if participant is None:
-            participant = session.query(Participant).filter(Participant.guild_id == guild.id,
-                                                            Participant.discord_id == member.id).one_or_none()
+    if participant.role.lower() == 'participant':
+        participant_role = guild.get_role(roles['participant'])
+        institution_role = guild.get_role(roles[participant.institution.lower()])
 
-        # Don't blow up if there isn't a participant...
-        if participant is not None:
-            if participant.role.lower() == 'participant':
-                participant_role = guild.get_role(roles['participant'])
-                institution_role = guild.get_role(roles[participant.institution.lower()])
-
-                await member.add_roles(institution_role,
-                                       participant_role,
-                                       reason='InfoChallengeConcierge added roles')
-            else:
-                role = guild.get_role(roles[participant.role.lower()])
-                await member.add_roles(role, reason='InfoChallengeConcierge added roles')
+        await member.add_roles(institution_role,
+                               participant_role,
+                               reason='InfoChallengeConcierge added roles')
+    else:
+        role = guild.get_role(roles[participant.role.lower()])
+        await member.add_roles(role, reason='InfoChallengeConcierge added roles')
 
 
 class Confirm(View):
@@ -57,6 +51,16 @@ class Confirm(View):
     @discord.ui.button(label="Yes", emoji="✔", style=ButtonStyle.green)
     async def yes(self, button: Button, interaction: discord.Interaction):
         msg, view = self.convo.exec(message="yes")
+
+        # this is a gross place for this to be...
+        if self.convo.state.state == 'registered':
+            with Session() as session:
+                participant = session.query(Participant).\
+                    filter(Participant.discord_id == self.convo.member.id,
+                           Participant.guild_id == self.convo.guild.id).one_or_none()
+                if participant is not None:
+                    self.convo.log.info(f"registration confirmed: syncing server roles")
+                    await sync_server_roles(self.convo.guild, self.convo.member, participant)
 
         # Apparently pycord doesn't like view to be present and none...
         if view is not None:
@@ -278,7 +282,6 @@ class RegistratorConvoFSM:
                                             email=reg_obj.email,
                                             institution=reg_obj.institution,
                                             role=reg_obj.role))
-
                     session.commit()
 
             response = f"{self.member.name}, your registration is now complete. Congratulations!\n" \
@@ -337,14 +340,12 @@ class Registrator(commands.Cog):
                 reg_fsm = RegistratorConvoFSM(self.log, guild, member)
                 msg, view = reg_fsm.exec(message=message.content)
 
-                # not the most efficient, but whatever
-                await sync_server_roles(guild, member)
-
                 # Pycord does not like it if there is a view argument that is set to none...
                 if view is not None:
                     await message.reply(msg, view=view)
                 else:
                     await message.reply(msg)
+
             else:
                 await message.reply(
                     f"I'm sorry. We don't share any servers, so I don't know how to help you."
@@ -451,21 +452,58 @@ class Registrator(commands.Cog):
             self.log.info(f"**`ERROR:`** _add_participant_error[{ctx.author.name}]: {error}")
 
     @commands.guild_only()
-    @checks.is_in_channel(EVENT_BOT_CHANNEL_ID)
-    @registrator_group.command(name="list_unlinked",
-                               description="🚫 [RESTRICTED] Identify accounts that are no linked.")
-    async def _list_unlinked(self, ctx):
-        self.log.info(f"")
+    @registrator_group.command(name='member_by_email', description="🚫 [RESTRICTED] Debug information.")
+    async def _member_by_email(self, ctx,
+                               email: Option(str,
+                                             "Optional: Email of the member to lookup.",
+                                             required=True)):
+        with Session() as session:
+            participant = session.query(Participant). \
+                filter(Participant.email == email,
+                       Participant.guild_id == ctx.guild.id).one_or_none()
 
-        unlinked = [m.nick for m in ctx.guild.members if m.top_role.name == 'everyone']
-        unlinked_str = '\n'.join(unlinked)
-        await ctx.respond(f"There are {len(unlinked)} unlinked accounts.\n List of accounts: \n{unlinked_str}",
-                          ephemeral=True)
+            if participant is not None:
+                member = ctx.guild.get_member(participant.discord_id)
+                if member is not None:
+                    response = f"User Info for {email}:\n" \
+                               f"\tMember Name: {member.name}\n" \
+                               f"\tMember Nick: {member.nick}\n" \
+                               f"\tCreated At: {member.created_at}\n" \
+                               f"\tJoined At: {member.joined_at}\n" \
+                               f"\tMember ID: {member.id}\n" \
+                               f"\tNumber of Roles: {len(member.roles)}\n" \
+                               f"\tTop Role: {member.top_role.name}"
+                else:
+                    response = f"No member for id {participant.discord_id}. Maybe they left the server?"
+            else:
+                response = f"No participant found for {email}"
+        await ctx.respond(response, ephemeral=True)
 
-    @_list_unlinked.error
-    async def _list_unlinked_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            self.log.info(f"**`ERROR:`** _list_unlinked_error[{ctx.author.name}]: {error}")
+    @_member_by_email.error
+    async def _member_by_email_error(self, ctx, error):
+        self.log.info(f"**`ERROR:`** Test[{ctx.author.name}]: {type(error).__name__} - {error}")
+
+    @commands.guild_only()
+    @registrator_group.command(name='hard_fix_perms', description="🚫 [RESTRICTED] Debug information.")
+    async def _hard_fix_perms(self, ctx):
+        with Session() as session:
+            participants = session.query(Participant). \
+                filter(Participant.guild_id == ctx.guild.id).all()
+            self.log.info(f"_hard_fix_perms: {len(participants)} participants")
+            await ctx.respond(f"Hard fixing permissions for {len(participants)} participants", ephemeral=True)
+            for participant in participants:
+                member = ctx.guild.get_member(participant.discord_id)
+                if member is not None:
+                    self.log.info(f"_hard_fix_perms: name: {member.display_name} id: {member.id} num_roles: {len(member.roles)}"
+                                  f" top_role: {member.top_role.name}")
+
+                    await sync_server_roles(ctx.guild, member, participant)
+            await ctx.respond(f"Hard fixing permissions: Complete", ephemeral=True)
+            self.log.info(f"_hard_fix_perms: complete")
+
+    @_hard_fix_perms.error
+    async def _fix_perms_error(self, ctx, error):
+        self.log.info(f"**`ERROR:`** _hard_fix_perms[{ctx.author.name}]: {type(error).__name__} - {error}")
 
 
 def setup(bot):

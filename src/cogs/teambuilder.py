@@ -1,10 +1,12 @@
 import os
 import re
+import time
 
 import discord as discord
 from discord.commands import CommandPermission, SlashCommandGroup
 from discord.ext import commands
 from dotenv import load_dotenv
+from sqlalchemy import select
 
 from common import checks, logging
 from models import Participant, Session, Team, TeamRegistration, TeamParticipant
@@ -49,7 +51,8 @@ class TeamBuilder(commands.Cog):
         perms = discord.Permissions.none()
 
         team_role = await guild.create_role(name=team_name,
-                                            permissions=perms)
+                                            permissions=perms,
+                                            hoist=True)
         team = Team(team_name=team_name,
                     guild_id=guild.id,
                     team_role_id=team_role.id)
@@ -96,30 +99,30 @@ class TeamBuilder(commands.Cog):
     @tb_group.command(name="build", description="🚫 [RESTRICTED] Build teams from team registrations")
     async def _build_teams(self, ctx):
         with Session() as session:
-            num_teams = session.query(TeamRegistration). \
-                filter(TeamRegistration.guild_id == ctx.guild.id). \
-                group_by(TeamRegistration.team_name). \
-                count()
+            stmt = select(TeamRegistration.team_name).\
+                where(TeamRegistration.guild_id == ctx.guild.id).\
+                distinct().\
+                order_by(TeamRegistration.team_name)
 
-            await ctx.respond(f"**`START:`** _build_teams: Building {num_teams} Teams", ephemeral=True)
-            self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {num_teams} teams.")
+            team_names_result = session.execute(stmt).columns(TeamRegistration.team_name).all()
 
-            team_reg_participants = session.query(TeamRegistration, Participant). \
-                filter(TeamRegistration.guild_id == ctx.guild.id,
-                       TeamRegistration.email == Participant.email,
-                       TeamRegistration.guild_id == Participant.guild_id). \
-                order_by(TeamRegistration.team_name). \
-                all()
+            await ctx.respond(f"**`START:`** _build_teams: Building {len(team_names_result)} Teams", ephemeral=True)
+            self.log.info(f"**`START:`** _build_teams: {ctx.author.name} is building {len(team_names_result)} teams.")
 
             cur_team = ''
-            for team_registration, participant in team_reg_participants:
-                if not team_registration.team_name.startswith('Team '):
-                    team_name = f"Team {team_registration.team_name}"
+            for t in team_names_result:
+                # enforce format
+                if not t.team_name.startswith('Team '):
+                    team_name = f"Team {t.team_name}"
+                else:
+                    team_name = t.team_name
+
                 # if a new team, then make one
                 team = session.query(Team). \
                     filter(Team.team_name == team_name,
                            Team.guild_id == ctx.guild.id). \
                     one_or_none()
+
                 if team is None:
                     await ctx.respond(f"_build_teams: Creating Team: {team_name}", ephemeral=True)
                     team = await self._create_team(session, team_name, ctx.guild)
@@ -129,27 +132,56 @@ class TeamBuilder(commands.Cog):
                     await ctx.respond(f"_build_teams: Adding members to {team.team_name}")
                     cur_team = team.team_name
 
-                # Check if participant is in a team. If in team, then skip.
-                team_participant = session.query(TeamParticipant). \
-                    filter(TeamParticipant.team_id == team.id,
-                           TeamParticipant.participant_id == participant.id,
-                           TeamParticipant.guild_id == ctx.guild.id). \
-                    one_or_none()
-                if team_participant is None or participant.role.lower() == 'mentor':
-                    await ctx.respond(f"_build_teams: Adding {participant.discord_d} to {team.team_name}", ephemeral=True)
-                    # Update database to show that the participant is in a team.
-                    team_participant = TeamParticipant(
-                        team_id=team.id,
-                        participant_id=participant.id,
-                        guild_id=ctx.guild.id
-                    )
-                    session.add(team_participant)
-                    session.commit()
-                # add member to team role
-                guild_member = ctx.guild.get_member(participant.discord_id)
-                if guild_member is not None:
-                    team_role = ctx.guild.get_role(team.team_role_id)
-                    await guild_member.add_roles(team_role, reason="Team registration")
+                team_reg_participants = session.query(TeamRegistration, Participant). \
+                    filter(TeamRegistration.guild_id == ctx.guild.id,
+                           TeamRegistration.email == Participant.email,
+                           TeamRegistration.guild_id == Participant.guild_id,
+                           TeamRegistration.team_name == t.team_name). \
+                    all()
+
+                self.log.info(f"_build_teams: {team.team_name} has {len(team_reg_participants)} members.")
+                cnt = 0
+                for team_registration, participant in team_reg_participants:
+                    self.log.info(f"_build_teams: {team.team_name} member {cnt} is {participant.discord_id}.")
+                    # add member to team role
+                    guild_member = ctx.guild.get_member(participant.discord_id)
+                    self.log.info(f"_build_teams: {guild_member is not None}")
+                    if guild_member is not None:
+                        self.log.info(f"_build_teams: {participant.discord_id} is {guild_member}")
+
+                        await ctx.respond(f"_build_teams: Adding {guild_member.display_name} to {team.team_name}",
+                                          ephemeral=True)
+                        # Check if participant is in a team. If in team, then skip.
+                        num_teams = session.query(TeamParticipant). \
+                            filter(TeamParticipant.participant_id == participant.id,
+                                   TeamParticipant.guild_id == ctx.guild.id). \
+                            count()
+
+                        in_current_team = session.query(TeamParticipant). \
+                            filter(TeamParticipant.participant_id == participant.id,
+                                   TeamParticipant.guild_id == ctx.guild.id,
+                                   TeamParticipant.team_id == team.id). \
+                            count()
+
+                        self.log.info(f"_build_teams: r={participant.role.lower()} n={num_teams} t={in_current_team}")
+                        if (participant.role.lower() == 'participant' and num_teams == 0) or \
+                                (participant.role.lower() == 'mentor' and in_current_team == 0):
+                            # Update database to show that the participant is in a team.
+                            team_participant = TeamParticipant(
+                                team_id=team.id,
+                                participant_id=participant.id,
+                                guild_id=ctx.guild.id
+                            )
+                            session.add(team_participant)
+                            session.commit()
+
+                            team_role = ctx.guild.get_role(team.team_role_id)
+                            await guild_member.add_roles(team_role, reason="Team registration")
+                    else:
+                        await ctx.respond(f"_build_teams: {participant.discord_id} left server.", ephemeral=True)
+                        self.log.info(f"_build_teams: {participant.discord_id} left server.")
+
+                #time.sleep(0.05)  # are we getting throttled?
 
         await ctx.respond(f"**`SUCCESS:`** _build_teams: Created {num_teams} teams.", ephemeral=True)
         self.log.info(f"**`SUCCESS:`** _build_teams: {ctx.author.name} created {num_teams} teams.")

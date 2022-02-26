@@ -6,7 +6,7 @@ class TeamParticipant(Base):
     __tablename__ = 'team_participants'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    team_id = Column(Integer, ForeignKey("teams.id"))
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete=""))
     participant_id = Column(Integer, ForeignKey("participants.id"))
     guild_id = Column(UnsignedInt, nullable=False)
 

@@ -75,7 +75,7 @@ class TeamBuilder(commands.Cog):
         session.add(team)
         session.commit()
 
-        roles = [(r.name, r) for r in guild.roles if r.name in ['Volunteer', 'IC Advisor', 'Project Partner']]
+        roles = [(r.name, r) for r in guild.roles if r.name in ['Planning Team', 'Volunteer']]
         roles_dict = dict(roles)
 
         overwrites = {
@@ -97,9 +97,11 @@ class TeamBuilder(commands.Cog):
                 stream=True,
                 use_voice_activation=True,
             ),
-            roles_dict['Volunteer']: discord.PermissionOverwrite(view_channel=True),
-            roles_dict['IC Advisor']: discord.PermissionOverwrite(view_channel=True),
-            roles_dict['Project Partner']: discord.PermissionOverwrite(view_channel=True)
+            roles_dict['Planning Team']: discord.PermissionOverwrite(
+                view_channel=True,
+                priority_speaker=True
+            ),
+            roles_dict['Volunteer']: discord.PermissionOverwrite(view_channel=True)
         }
 
         cat = await guild.create_category_channel(team_name, overwrites=overwrites)
